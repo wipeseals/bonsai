@@ -2,7 +2,7 @@
 
 [![Pytest](https://github.com/wipeseals/rusk/actions/workflows/pytest.yml/badge.svg)](https://github.com/wipeseals/rusk/actions/workflows/pytest.yml)
 
-Rusk is a RISC-V CPU designed using Amaranth for educational purposes.
+Rusk is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth) for educational purposes.
 
 ## Features
 
