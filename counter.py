@@ -2,6 +2,7 @@ from amaranth import Module, Signal
 from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 from amaranth.sim import Simulator
+from amaranth.back import verilog
 
 
 class Counter(wiring.Component):
@@ -55,5 +56,12 @@ def test_counter():
         sim.run()
 
 
+def export_counter():
+    counter = Counter(16)
+    with open("counter.v", "w") as f:
+        f.write(verilog.convert(counter))
+
+
 if __name__ == "__main__":
     test_counter()
+    export_counter()
