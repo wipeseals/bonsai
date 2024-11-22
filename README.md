@@ -1,8 +1,8 @@
-# Rusk
+# Ruskv
 
-[![Pytest](https://github.com/wipeseals/rusk/actions/workflows/pytest.yml/badge.svg)](https://github.com/wipeseals/rusk/actions/workflows/pytest.yml)
+[![Pytest](https://github.com/wipeseals/ruskv/actions/workflows/pytest.yml/badge.svg)](https://github.com/wipeseals/ruskv/actions/workflows/pytest.yml)
 
-Rusk is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth) for educational purposes.
+Ruskv is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth) for educational purposes.
 
 ## Features
 
@@ -13,7 +13,7 @@ TODO:
 This project is managed with [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# Create a Python environment for the rusk project
+# Create a Python environment for the ruskv project
 $ uv python install
 
 # Synchronize packages
@@ -27,10 +27,10 @@ $ uv run pytest
 
 ```bash
 # Generate Verilog for any design
-$ uv run rusk/<design name>.py generate <design name>.v
+$ uv run ruskv/<design name>.py generate <design name>.v
 
 # Example
-$ uv run rusk/top.py generate top.v
+$ uv run ruskv/top.py generate top.v
 ```
 
 ## License

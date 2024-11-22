@@ -1330,7 +1330,7 @@ wheels = [
 ]
 
 [[package]]
-name = "rusk"
+name = "ruskv"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

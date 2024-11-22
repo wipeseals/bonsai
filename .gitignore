@@ -1,3 +1,6 @@
 .venv
 *.vcd
 __pycache__
+dist
+.pytest_cache
+ruskv.egg-info
