@@ -2,7 +2,7 @@
 
 [![Pytest](https://github.com/wipeseals/ruskv/actions/workflows/pytest.yml/badge.svg)](https://github.com/wipeseals/ruskv/actions/workflows/pytest.yml)
 
-Ruskv is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth) for educational purposes.
+Ruskv is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth).
 
 ## Features
 
