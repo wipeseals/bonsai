@@ -1,21 +1,18 @@
-from typing import Callable
-from amaranth.sim import Simulator
-
 from bonsai.counter import Counter
 from tests.common import run
 
 
 def test_disable_counter():
-    counter = Counter(16)
+    dut = Counter(16)
 
     async def bench(ctx):
-        ctx.set(counter.clr, 0)
-        ctx.set(counter.en, 0)
+        ctx.set(dut.clr, 0)
+        ctx.set(dut.en, 0)
         for _ in range(16):
             await ctx.tick()
-            assert not ctx.get(counter.ovf)
+            assert not ctx.get(dut.ovf)
 
-    run(f"{test_disable_counter.__name__}", dut=counter, testbench=bench)
+    run(f"{test_disable_counter.__name__}", dut=dut, testbench=bench)
 
 
 def test_enable_counter():
