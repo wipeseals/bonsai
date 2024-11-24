@@ -1,6 +1,6 @@
 from amaranth.sim import Simulator
 
-from rusk.counter import Counter
+from bonsai.counter import Counter
 
 
 def test_counter():
