@@ -33,7 +33,9 @@ class SimpleInstMem(wiring.Component):
         m.submodules.mem = self.mem
 
         # メモリアドレスをbyte単位からdata_shape単位に変換して、メモリからデータを読み出す
-        m.d.comb += self.rd_data.eq(self.mem[self.rd_addr // self.inst_bytes])
+        rd_port = self.mem.read_port()
+        m.d.comb += rd_port.addr.eq(self.rd_addr // self.inst_bytes)
+        m.d.comb += self.rd_data.eq(rd_port.data)
         # simple_inst_memをMemPortに置き換えた場合、リソース競合によるハザードを考慮する用の信号
         m.d.comb += self.rd_valid.eq(1)
 
@@ -46,14 +48,12 @@ class InstFetchDebug(data.StructLayout):
     Attributes:
         cyc (Signal): The cycle count at the time of fetch
         seq_no (Signal): The sequence number of the fetch operation
-        stall_cyc (Signal): The number of cycles the fetch operation was stalled
     """
 
     def __init__(self, data_shape: Shape):
         ports = {
-            "cyc": data.Signal(data_shape, init=0),
-            "seq_no": data.Signal(data_shape, init=0),
-            "stall_cyc": data.Signal(data_shape, init=0),
+            "cyc": data_shape,
+            "seq_no": data_shape,
         }
         super().__init__(ports)
 
@@ -67,7 +67,7 @@ class InstFetchIn(data.StructLayout):
 
     def __init__(self, data_shape: Shape, is_debug: bool = False):
         ports = {
-            "next_pc": data.Signal(data_shape, init=0),
+            "next_pc": data_shape,
         }
         if is_debug:
             # TODO: EX,WB からPC操作時のデバッグ情報があれば追加
@@ -87,13 +87,13 @@ class InstFetchOut(data.StructLayout):
 
     def __init__(self, data_shape: Shape, is_debug: bool = False):
         ports = {
-            "inst": data.Signal(data_shape, init=0),
-            "pc": data.Signal(data_shape, init=0),
+            "inst": data_shape,
+            "pc": data_shape,
         }
         if is_debug:
             ports["debug"] = data.Signal(InstFetchDebug(data_shape))
 
-        super().__init__()
+        super().__init__(ports)
 
 
 class InstFetch(wiring.Component):
@@ -117,8 +117,6 @@ class InstFetch(wiring.Component):
         self.data_shape = data_shape
         self.is_debug = is_debug
 
-        # signals
-        self.pc = Signal(data_shape, init=0)
         # TODO: SimpleInstMemをBusMasterに変更する
         self.mem = SimpleInstMem(
             data_shape=data_shape, depth=inst_mem_depth, init_data=inst_mem_init_data
@@ -146,50 +144,52 @@ class InstFetch(wiring.Component):
             # cycle数はenable問わずにカウントアップする
             m.d.sync += self.debug.cyc.eq(self.debug.cyc + 1)
 
-        # next_pc取得
-        with m.If(self.input.valid):
-            m.d.sync += self.pc.eq(self.input.payload.next_pc)
-            m.d.sync += self.input.ready.eq(1)
+        # PC取得はmemアクセス中ではないタイミングで、next_pcが有効な場合に行う
+        with m.FSM(init="idle"):
+            with m.State("idle"):
+                with m.If(self.mem.rd_valid):
+                    with m.If(self.input.valid):
+                        # next_pcを取得して、メモリアクセスを開始
+                        m.d.sync += self.mem.rd_addr.eq(self.input.payload.next_pc)
+                        m.d.sync += self.input.ready.eq(1)
+                        m.next = "capture next_pc"
+                    with m.Else():
+                        # next_pcが有効になるまで待ち
+                        m.d.sync += self.input.ready.eq(0)
+                        m.next = "idle"
+                with m.Else():
+                    # メモリアクセス中
+                    m.d.sync += self.input.ready.eq(0)
+                    m.next = "idle"
+            with m.State("capture next_pc"):
+                with m.If(self.mem.rd_valid):
+                    with m.If(self.input.valid):
+                        # メモリアクセス完了 & 次のPC有効
+                        m.d.sync += self.mem.rd_addr.eq(self.input.payload.next_pc)
+                        m.d.sync += self.input.ready.eq(1)
+                        m.next = "capture next_pc"
+                    with m.Else():
+                        # メモリアクセス完了 & 次のPC無効
+                        m.d.sync += self.input.ready.eq(0)
+                        m.next = "idle"
+                with m.Else():
+                    # メモリアクセス中
+                    m.d.sync += self.input.ready.eq(0)
+                    m.next = "idle"
 
-        with m.If(self.input.valid):
-            # メモリアクセス完了時
-            with m.If(self.mem.rd_valid):
-                # Fetchデータ出力
-                m.d.sync += self.output.payload.pc.eq(self.pc)
-                m.d.sync += self.output.payload.inst.eq(self.mem.rd_data)
-                if self.is_debug:
-                    m.d.sync += self.output.payload.debug(self.debug)
-                m.d.sync += self.output.valid.eq(1)
-
-                # 次のPCが用意されていれば更新
-                if m.If(self.input.valid):
-                    m.d.sync += self.pc.eq(self.input.payload.next_pc)  # pc <= next_pc
-                    m.d.sync += self.input.ready.eq(1)  # fetch next_pc
-
-                # デバッグ情報更新
-                if self.is_debug:
-                    # seq_no更新
-                    m.d.sync += self.debug.seq_no.eq(self.debug.seq_no + 1)
-                    # stall cycle数をリセット
-                    m.d.sync += self.debug.stall_cyc.eq(0)
-
-            with m.Else:
-                # メモリアクセス中
-
-                if self.is_debug:
-                    # stall cycle数をカウントアップ
-                    m.d.sync += self.debug.stall_cyc.eq(self.debug.stall_cyc + 1)
-
-        with m.Else:
-            # 機能無効時
-            # 出力は前回の値を維持
-
+        # inst/pc出力はmemアクセス完了時に行う
+        with m.If(self.mem.rd_valid):
+            # メモリアクセス完了、Fetchデータ出力
+            m.d.sync += self.output.payload.inst.eq(self.mem.rd_data)
+            m.d.sync += self.output.payload.pc.eq(self.mem.rd_addr)
             if self.is_debug:
-                # stall cycle数をカウントアップ (mem accessと分ける必要があれば情報分割する)
-                m.d.sync += self.debug.stall_cyc.eq(self.debug.stall_cyc + 1)
-
-        # Stream送受信のステータスを更新
-        if m.If(self.output.valid & self.output.ready):
+                m.d.sync += self.output.payload.debug.eq(self.debug)
+            m.d.sync += self.output.valid.eq(1)
+            # デバッグ情報更新
+            if self.is_debug:
+                m.d.sync += self.debug.seq_no.eq(self.debug.seq_no + 1)
+        with m.Else():
+            # メモリアクセス中
             m.d.sync += self.output.valid.eq(0)
 
         return m
