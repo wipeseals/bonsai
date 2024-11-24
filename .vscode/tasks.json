@@ -22,7 +22,7 @@
         {
             "label": "run pytest",
             "type": "shell",
-            "command": "uv run pytest",
+            "command": "uv run pytest -v --ff -rfs",
             "group": {
                 "kind": "test",
                 "isDefault": true
@@ -36,6 +36,24 @@
             "problemMatcher": [
                 "$python"
             ]
-        }
+        },
+        {
+            "label": "run pytest (current file)",
+            "type": "shell",
+            "command": "uv run pytest -v -s ${file}",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$python"
+            ]
+        },
     ]
 }
