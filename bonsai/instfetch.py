@@ -62,12 +62,12 @@ class InstFetchIn(data.StructLayout):
     """
     Data structure of IF input signals
     Attributes:
-        next_pc (Signal): The next program counter value
+        pc (Signal): The next program counter value
     """
 
     def __init__(self, data_shape: Shape, is_debug: bool = False):
         ports = {
-            "next_pc": data_shape,
+            "pc": data_shape,
         }
         if is_debug:
             # TODO: EX,WB からPC操作時のデバッグ情報があれば追加
@@ -101,7 +101,7 @@ class InstFetch(wiring.Component):
     InstFetch is a hardware component that fetches instructions from memory.
     Attributes:
         en (In): Input signal to enable instruction fetch.
-        next_pc (In): Input signal that specifies the next program counter value.
+        pc (In): Input signal that specifies the next program counter value.
         out (Out): Output signal that contains the instruction read from memory.
     """
 
@@ -158,8 +158,8 @@ class InstFetch(wiring.Component):
                 m.d.sync += self.debug.seq_no.eq(self.debug.seq_no + 1)
 
         # validになった後はreadyで受け取るまでは変わらない保証がある
-        m.d.comb += self.mem.rd_addr.eq(self.input.payload.next_pc)
-        # next_pcの更新は、Readが終わり次段が結果を受取るまで行わない
+        m.d.comb += self.mem.rd_addr.eq(self.input.payload.pc)
+        # pcの更新は、Readが終わり次段が結果を受取るまで行わない
         m.d.comb += self.input.ready.eq(
             self.mem.rd_valid & (output_not_valid | output_accept)
         )
