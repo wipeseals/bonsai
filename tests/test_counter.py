@@ -2,14 +2,7 @@ from typing import Callable
 from amaranth.sim import Simulator
 
 from bonsai.counter import Counter
-
-
-def run(name: str, counter: Counter, testbench: Callable):
-    sim = Simulator(counter)
-    sim.add_clock(1)
-    sim.add_testbench(testbench)
-    with sim.write_vcd(f"{name}.vcd"):
-        sim.run()
+from tests.common import run
 
 
 def test_disable_counter():
@@ -22,7 +15,7 @@ def test_disable_counter():
             await ctx.tick()
             assert not ctx.get(counter.ovf)
 
-    run(f"{test_disable_counter.__name__}", counter=counter, testbench=bench)
+    run(f"{test_disable_counter.__name__}", dut=counter, testbench=bench)
 
 
 def test_enable_counter():
@@ -41,7 +34,7 @@ def test_enable_counter():
         await ctx.tick()
         assert not ctx.get(counter.ovf)
 
-    run(f"{test_enable_counter.__name__}", counter=counter, testbench=bench)
+    run(f"{test_enable_counter.__name__}", dut=counter, testbench=bench)
 
 
 def test_disable_when_overflow():
@@ -68,7 +61,7 @@ def test_disable_when_overflow():
         await ctx.tick()
         assert not ctx.get(counter.ovf)
 
-    run(f"{test_disable_when_overflow.__name__}", counter=counter, testbench=bench)
+    run(f"{test_disable_when_overflow.__name__}", dut=counter, testbench=bench)
 
 
 def test_clear_counter():
@@ -95,4 +88,4 @@ def test_clear_counter():
         await ctx.tick()
         assert ctx.get(counter.ovf)
 
-    run(f"{test_clear_counter.__name__}", counter=counter, testbench=bench)
+    run(f"{test_clear_counter.__name__}", dut=counter, testbench=bench)
