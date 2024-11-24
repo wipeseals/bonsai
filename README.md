@@ -13,6 +13,10 @@ TODO:
 This project is managed with [uv](https://docs.astral.sh/uv/).
 
 ```bash
+# install uv
+$ pip install --upgrade pip
+$ pip install uv
+
 # Create a Python environment for the ruskv project
 $ uv python install
 
