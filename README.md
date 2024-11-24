@@ -1,8 +1,8 @@
-# Ruskv
+# Bonsai
 
-[![Pytest](https://github.com/wipeseals/ruskv/actions/workflows/pytest.yml/badge.svg)](https://github.com/wipeseals/ruskv/actions/workflows/pytest.yml)
+[![Pytest](https://github.com/wipeseals/bonsai/actions/workflows/pytest.yml/badge.svg)](https://github.com/wipeseals/bonsai/actions/workflows/pytest.yml)
 
-Ruskv is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth).
+Bonsai is a RISC-V CPU designed using [Amaranth HDL](https://github.com/amaranth-lang/amaranth).
 
 ## Features
 
@@ -17,7 +17,7 @@ This project is managed with [uv](https://docs.astral.sh/uv/).
 $ pip install --upgrade pip
 $ pip install uv
 
-# Create a Python environment for the ruskv project
+# Create a Python environment for the bonsai project
 $ uv python install
 
 # Synchronize packages
@@ -31,10 +31,10 @@ $ uv run pytest
 
 ```bash
 # Generate Verilog for any design
-$ uv run ruskv/<design name>.py generate <design name>.v
+$ uv run bonsai/<design name>.py generate <design name>.v
 
 # Example
-$ uv run ruskv/top.py generate top.v
+$ uv run bonsai/top.py generate top.v
 ```
 
 ## License
