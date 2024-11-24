@@ -139,58 +139,38 @@ class InstFetch(wiring.Component):
         m = Module()
         m.submodules.mem = self.mem
 
-        # デバッグ向け情報
+        ###########################################################
+        # cycle数はenable問わずにカウントアップする
         if self.is_debug:
-            # cycle数はenable問わずにカウントアップする
             m.d.sync += self.debug.cyc.eq(self.debug.cyc + 1)
 
-        # PC取得はmemアクセス中ではないタイミングで、next_pcが有効な場合に行う
-        with m.FSM(init="idle"):
-            with m.State("idle"):
-                with m.If(self.mem.rd_valid):
-                    with m.If(self.input.valid):
-                        # next_pcを取得して、メモリアクセスを開始
-                        m.d.sync += self.mem.rd_addr.eq(self.input.payload.next_pc)
-                        m.d.sync += self.input.ready.eq(1)
-                        m.next = "capture next_pc"
-                    with m.Else():
-                        # next_pcが有効になるまで待ち
-                        m.d.sync += self.input.ready.eq(0)
-                        m.next = "idle"
-                with m.Else():
-                    # メモリアクセス中
-                    m.d.sync += self.input.ready.eq(0)
-                    m.next = "idle"
-            with m.State("capture next_pc"):
-                with m.If(self.mem.rd_valid):
-                    with m.If(self.input.valid):
-                        # メモリアクセス完了 & 次のPC有効
-                        m.d.sync += self.mem.rd_addr.eq(self.input.payload.next_pc)
-                        m.d.sync += self.input.ready.eq(1)
-                        m.next = "capture next_pc"
-                    with m.Else():
-                        # メモリアクセス完了 & 次のPC無効
-                        m.d.sync += self.input.ready.eq(0)
-                        m.next = "idle"
-                with m.Else():
-                    # メモリアクセス中
-                    m.d.sync += self.input.ready.eq(0)
-                    m.next = "idle"
+        ###########################################################
+        # PC: メモリアクセス完了 & 次段が受付可能なときに次のPCを読み込む
 
-        # inst/pc出力はmemアクセス完了時に行う
-        with m.If(self.mem.rd_valid):
-            # メモリアクセス完了、Fetchデータ出力
-            m.d.sync += self.output.payload.inst.eq(self.mem.rd_data)
-            m.d.sync += self.output.payload.pc.eq(self.mem.rd_addr)
-            if self.is_debug:
-                m.d.sync += self.output.payload.debug.eq(self.debug)
-            m.d.sync += self.output.valid.eq(1)
-            # デバッグ情報更新
-            if self.is_debug:
+        # 次段にデータ出していない
+        output_not_valid = ~self.output.valid
+
+        # 次段にデータ出しているが受け取ってない
+        output_accept = self.output.valid | self.output.ready
+        if self.is_debug:
+            # 結果送信完了時にシーケンス番号を更新
+            with m.If(output_accept):
                 m.d.sync += self.debug.seq_no.eq(self.debug.seq_no + 1)
-        with m.Else():
-            # メモリアクセス中
-            m.d.sync += self.output.valid.eq(0)
+
+        # validになった後はreadyで受け取るまでは変わらない保証がある
+        m.d.comb += self.mem.rd_addr.eq(self.input.payload.next_pc)
+        # next_pcの更新は、Readが終わり次段が結果を受取るまで行わない
+        m.d.comb += self.input.ready.eq(
+            self.mem.rd_valid & (output_not_valid | output_accept)
+        )
+
+        ###########################################################
+        # inst/pc出力: メモリアクセス先と読み出したデータ
+        m.d.comb += self.output.payload.inst.eq(self.mem.rd_data)
+        m.d.comb += self.output.payload.pc.eq(self.mem.rd_addr)
+        if self.is_debug:
+            m.d.sync += self.output.payload.debug.eq(self.debug)
+        m.d.comb += self.output.valid.eq(self.mem.rd_valid)
 
         return m
 
