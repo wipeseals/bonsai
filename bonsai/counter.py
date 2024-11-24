@@ -10,6 +10,7 @@ class Counter(wiring.Component):
     Attributes:
         en (In): Input signal to enable the counter.
         ovf (Out): Output signal that indicates when the counter has overflowed.
+        clr (In): Input signal to clear the counter. en and clr must be high to clear the counter.
         limit (int): The maximum value the counter will count to before resetting.
         count (Signal): The current count value, represented as a 16-bit signal.
     """
