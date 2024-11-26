@@ -16,41 +16,6 @@ class InstFetchDebug(data.Struct):
     seq_no: config.REG_SHAPE
 
 
-class InstFetchIn(data.Struct):
-    """
-    Data structure of IF input signals
-    """
-
-    jump_pc: config.ADDR_SHAPE
-    flush: unsigned(1)
-
-
-class InstFetchOut(data.Struct):
-    """
-    Data structure of the IF/ID pipeline register
-    """
-
-    inst: config.INST_SHAPE
-    pc: config.ADDR_SHAPE
-    debug: InstFetchDebug
-
-
-class MemReadReq(data.Struct):
-    """
-    Data structure of the memory read request
-    """
-
-    addr: config.ADDR_SHAPE
-
-
-class MemReadResp(data.Struct):
-    """
-    Data structure of the memory read response
-    """
-
-    data: config.DATA_SHAPE
-
-
 class InstFetch(wiring.Component):
     """
     InstFetch is a hardware component that fetches instructions from memory.
