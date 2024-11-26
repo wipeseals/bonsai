@@ -3,7 +3,7 @@ from amaranth.sim import Simulator
 from amaranth.lib import wiring
 
 
-def run(name: str, dut: wiring.Component, testbench: Callable):
+def run_sim(name: str, dut: wiring.Component, testbench: Callable):
     """
     Run a testbench on a DUT.
     Args:

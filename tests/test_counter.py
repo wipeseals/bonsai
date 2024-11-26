@@ -1,5 +1,5 @@
 from bonsai.counter import Counter
-from tests.common import run
+from tests.testutil import run_sim
 
 
 def test_disable_counter():
@@ -12,7 +12,7 @@ def test_disable_counter():
             await ctx.tick()
             assert not ctx.get(dut.ovf)
 
-    run(f"{test_disable_counter.__name__}", dut=dut, testbench=bench)
+    run_sim(f"{test_disable_counter.__name__}", dut=dut, testbench=bench)
 
 
 def test_enable_counter():
@@ -31,7 +31,7 @@ def test_enable_counter():
         await ctx.tick()
         assert not ctx.get(counter.ovf)
 
-    run(f"{test_enable_counter.__name__}", dut=counter, testbench=bench)
+    run_sim(f"{test_enable_counter.__name__}", dut=counter, testbench=bench)
 
 
 def test_disable_when_overflow():
@@ -58,7 +58,7 @@ def test_disable_when_overflow():
         await ctx.tick()
         assert not ctx.get(counter.ovf)
 
-    run(f"{test_disable_when_overflow.__name__}", dut=counter, testbench=bench)
+    run_sim(f"{test_disable_when_overflow.__name__}", dut=counter, testbench=bench)
 
 
 def test_clear_counter():
@@ -85,4 +85,4 @@ def test_clear_counter():
         await ctx.tick()
         assert ctx.get(counter.ovf)
 
-    run(f"{test_clear_counter.__name__}", dut=counter, testbench=bench)
+    run_sim(f"{test_clear_counter.__name__}", dut=counter, testbench=bench)
