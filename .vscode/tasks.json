@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "generate verilog (current file)",
+            "label": "run current file",
             "type": "shell",
-            "command": "uv run ${file} generate ${fileBasenameNoExtension}.v",
+            "command": "uv run ${file}",
             "group": {
                 "kind": "build",
                 "isDefault": true
