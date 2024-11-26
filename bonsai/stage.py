@@ -3,9 +3,11 @@ from amaranth import Const, Format, Module, Mux, Print, Shape, Signal, unsigned
 from amaranth.lib import wiring, enum, data, memory, stream
 from amaranth.lib.wiring import In, Out
 from amaranth.cli import main
+from amaranth.back import verilog
 
 import pipeline
 import config
+import util
 
 
 class IfStage(wiring.Component):
@@ -15,6 +17,7 @@ class IfStage(wiring.Component):
 
     input: In(pipeline.IfReg)
     output: Out(pipeline.IfIsReg)
+    side_ctrl: In(pipeline.SideCtrl)
 
     def elaborate(self, platform):
         m = Module()
@@ -31,17 +34,15 @@ class IfStage(wiring.Component):
 
         # Push Instruction fetch address
         with m.If(self.input.ctrl.en):
-            # push
-            m.d.sync += self.output.ctrl.en.eq(1)
-            m.d.sync += self.output.addr.eq(self.input.pc)
+            with m.If(self.side_ctrl.clr):
+                m.d.sync += self.output.flush()
+            with m.Else():
+                m.d.sync += self.output.push(self.input.pc)
         with m.Else():
-            # stall
-            m.d.sync += self.output.ctrl.en.eq(0)
-            m.d.sync += self.output.addr.eq(0)
+            m.d.sync += self.output.stall()
 
         return m
 
 
 if __name__ == "__main__":
-    ifs = IfStage()
-    main(ifs)
+    util.export_verilog_file(IfStage(), f"{IfStage.__name__}")
