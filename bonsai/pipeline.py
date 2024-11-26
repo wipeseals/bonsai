@@ -92,7 +92,7 @@ class IfIsReg(data.Struct):
         """
         return [
             self.ctrl.en.eq(0),
-            self.addr.eq(1),
+            self.addr.eq(0),
             Print(Format("[IF] flush addr: {:016x}", 0)),
         ]
 
