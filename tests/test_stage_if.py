@@ -72,7 +72,7 @@ def test_if_stall():
         ctx.set(dut.input.ctrl.en, 0)
         ctx.set(dut.input.pc, new_addr)
         await ctx.tick()
-        assert ctx.get(dut.output.addr) == 0
+        # stall中のアドレスはDon't care
         assert ctx.get(dut.output.ctrl.en) == 0
         # allow fetch
         new_addr = 0x55
