@@ -13,6 +13,30 @@ def generate_test_data():
     return [Const(~x, config.INST_SHAPE) for x in range(config.L1_CACHE_DEPTH)]
 
 
+def test_is_flush():
+    dut = IsStage()
+
+    async def bench(ctx):
+        # initial
+        addr = 0xAA
+        ctx.set(dut.input.ctrl.en, 1)
+        ctx.set(dut.side_ctrl.clr, 0)
+        ctx.set(dut.input.addr, addr)
+        await ctx.tick()
+        assert ctx.get(dut.output.addr) == addr
+        assert ctx.get(dut.output.ctrl.en) == 1
+        # flush
+        addr = 0x55
+        ctx.set(dut.input.ctrl.en, 1)
+        ctx.set(dut.side_ctrl.clr, 1)
+        ctx.set(dut.input.addr, addr)
+        await ctx.tick()
+        assert ctx.get(dut.output.addr) == 0
+        assert ctx.get(dut.output.ctrl.en) == 0
+
+    run_sim(f"{test_is_flush.__name__}", dut=dut, testbench=bench)
+
+
 def test_is_freerun():
     inst_test_data = generate_test_data()
     dut = IsStage(init_data=inst_test_data)
