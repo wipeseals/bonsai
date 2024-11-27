@@ -2,8 +2,6 @@ from typing import Any
 from amaranth import Const, Format, Module, Mux, Print, Shape, Signal, unsigned
 from amaranth.lib import wiring, enum, data, memory, stream
 from amaranth.lib.wiring import In, Out
-from amaranth.cli import main
-from amaranth.back import verilog
 
 import pipeline
 import config
@@ -21,26 +19,26 @@ class IfStage(wiring.Component):
 
     def elaborate(self, platform):
         m = Module()
+        input: pipeline.IfReg = self.input
+        output: pipeline.IfIsReg = self.output
+        side_ctrl: pipeline.SideCtrl = self.side_ctrl
 
-        # Debug cycle/sequence counter
-        counter = Signal(config.REG_SHAPE)
-        seq_no = Signal(config.REG_SHAPE)
-
-        m.d.sync += counter.eq(counter + 1)
-        with m.If(self.input.ctrl.en):
-            m.d.sync += seq_no.eq(seq_no + 1)
-        m.d.sync += self.output.ctrl.debug.counter.eq(counter + 1)
-        m.d.sync += self.output.ctrl.debug.seq_no.eq(seq_no)
+        # Debug sequence counter
+        debug = Signal(pipeline.StageCtrlDebug)
+        m.d.sync += debug.cyc.eq(side_ctrl.cyc)
 
         # Push Instruction fetch address
-        with m.If(self.side_ctrl.clr):
+        with m.If(side_ctrl.clr):
             # stall中にflushがかかった場合は、flushを優先する
-            m.d.sync += self.output.flush()
+            m.d.sync += output.flush()
         with m.Else():
-            with m.If(self.input.ctrl.en):
-                m.d.sync += self.output.push(self.input.pc)
+            with m.If(input.ctrl.en):
+                # pc
+                m.d.sync += output.push(input.pc, debug)
+                # debug info
+                m.d.sync += debug.seqno.eq(debug.seqno + 1)
             with m.Else():
-                m.d.sync += self.output.stall()
+                m.d.sync += output.stall()
 
         return m
 

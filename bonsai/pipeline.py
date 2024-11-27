@@ -14,9 +14,9 @@ class StageCtrlDebug(data.Struct):
     """
 
     # fetch cycle number
-    counter: config.REG_SHAPE
+    cyc: config.REG_SHAPE
     # fetch sequence number
-    seq_no: config.REG_SHAPE
+    seqno: config.REG_SHAPE
 
 
 class StageCtrl(data.Struct):
@@ -37,6 +37,8 @@ class SideCtrl(data.Struct):
 
     # clear output (for pipeline flush)
     clr: unsigned(1)
+    # global cycle counter
+    cyc: config.REG_SHAPE
 
 
 ################################################################
@@ -66,12 +68,13 @@ class IfIsReg(data.Struct):
     # Instruction Address
     addr: config.INST_SHAPE
 
-    def push(self, addr: config.ADDR_SHAPE):
+    def push(self, addr: config.ADDR_SHAPE, debug: StageCtrlDebug):
         """
         Push the instruction fetch address
         """
         return [
             self.ctrl.en.eq(1),
+            self.ctrl.debug.eq(debug),
             self.addr.eq(addr),
             Print(Format("[IF] push  addr: {:016x}", addr)),
         ]

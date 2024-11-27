@@ -10,6 +10,7 @@ def test_if_branch():
         # initial
         addr = 0xAA
         ctx.set(dut.input.ctrl.en, 1)
+        ctx.set(dut.side_ctrl.clr, 0)
         ctx.set(dut.input.pc, addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == addr
@@ -34,6 +35,9 @@ def test_if_freerun():
         ctx.set(dut.input.ctrl.en, 1)
         ctx.set(dut.input.pc, addr)
         await ctx.tick()
+        assert ctx.get(dut.output.addr) == addr
+        assert ctx.get(dut.output.ctrl.en) == 1
+        assert ctx.get(dut.output.ctrl.debug.seqno) == 0
         # freerun
         for i in range(16):
             prev_addr = addr
@@ -47,6 +51,7 @@ def test_if_freerun():
             await ctx.tick()
             assert ctx.get(dut.output.addr) == addr
             assert ctx.get(dut.output.ctrl.en) == 1
+            assert ctx.get(dut.output.ctrl.debug.seqno) == i + 1
 
     run_sim(f"{test_if_freerun.__name__}", dut=dut, testbench=bench)
 
