@@ -180,6 +180,45 @@ wheels = [
 ]
 
 [[package]]
+name = "bonsai"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "amaranth", extra = ["builtin-yosys"] },
+    { name = "amaranth-boards" },
+    { name = "asyncio" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "amaranth-yosys" },
+    { name = "jupyterlab" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-html" },
+    { name = "pytest-mock" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "amaranth", extras = ["builtin-yosys"], specifier = ">=0.5.3" },
+    { name = "amaranth-boards", git = "https://github.com/amaranth-lang/amaranth-boards.git" },
+    { name = "asyncio", specifier = ">=3.4.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "amaranth-yosys", specifier = ">=0.40.0.0.post100" },
+    { name = "jupyterlab", specifier = ">=4.3.1" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-html", specifier = ">=4.1.1" },
+    { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "ruff", specifier = ">=0.7.4" },
+]
+
+[[package]]
 name = "certifi"
 version = "2024.8.30"
 source = { registry = "https://pypi.org/simple" }
@@ -1327,43 +1366,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8d/1b/dd77503b3875c51e3dbc053fd8367b845ab8b01c9ca6d0c237082732856c/ruff-0.7.4-py3-none-win32.whl", hash = "sha256:75c53f54904be42dd52a548728a5b572344b50d9b2873d13a3f8c5e3b91f5cac", size = 8702767 },
     { url = "https://files.pythonhosted.org/packages/63/76/253ddc3e89e70165bba952ecca424b980b8d3c2598ceb4fc47904f424953/ruff-0.7.4-py3-none-win_amd64.whl", hash = "sha256:745775c7b39f914238ed1f1b0bebed0b9155a17cd8bc0b08d3c87e4703b990d6", size = 9497534 },
     { url = "https://files.pythonhosted.org/packages/aa/70/f8724f31abc0b329ca98b33d73c14020168babcf71b0cba3cded5d9d0e66/ruff-0.7.4-py3-none-win_arm64.whl", hash = "sha256:11bff065102c3ae9d3ea4dc9ecdfe5a5171349cdd0787c1fc64761212fc9cf1f", size = 8851590 },
-]
-
-[[package]]
-name = "bonsai"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "amaranth", extra = ["builtin-yosys"] },
-    { name = "amaranth-boards" },
-    { name = "asyncio" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "jupyterlab" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-html" },
-    { name = "pytest-mock" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "amaranth", extras = ["builtin-yosys"], specifier = ">=0.5.3" },
-    { name = "amaranth-boards", git = "https://github.com/amaranth-lang/amaranth-boards.git" },
-    { name = "asyncio", specifier = ">=3.4.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "jupyterlab", specifier = ">=4.3.1" },
-    { name = "pytest", specifier = ">=8.3.3" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-html", specifier = ">=4.1.1" },
-    { name = "pytest-mock", specifier = ">=3.14.0" },
-    { name = "ruff", specifier = ">=0.7.4" },
 ]
 
 [[package]]
