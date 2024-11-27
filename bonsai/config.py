@@ -1,4 +1,18 @@
+import os
 from amaranth import Shape, unsigned
+
+# Directory for generated files
+DIST_FILE_DIR: str = "dist"
+
+
+def dist_file_path(file_name: str) -> str:
+    """
+    Get the path of the generated file
+    """
+
+    if not os.path.exists(DIST_FILE_DIR):
+        os.makedirs(DIST_FILE_DIR)
+    return f"{DIST_FILE_DIR}/{file_name}"
 
 
 # TODO: dataclassで撒いていたが、Variable Annotation での定義時に参照できず相性が悪いのでglobalに移動している
