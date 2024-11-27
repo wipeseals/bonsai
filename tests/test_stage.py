@@ -108,3 +108,43 @@ def test_if_flush():
         assert ctx.get(dut.output.ctrl.en) == 1
 
     run_sim(f"{test_if_flush.__name__}", dut=dut, testbench=bench)
+
+
+def test_if_flush_when_stall():
+    dut = IfStage()
+
+    async def bench(ctx):
+        # initial
+        old_addr = 0xAA
+        ctx.set(dut.input.ctrl.en, 1)
+        ctx.set(dut.input.pc, old_addr)
+        await ctx.tick()
+        assert ctx.get(dut.output.addr) == old_addr
+        assert ctx.get(dut.output.ctrl.en) == 1
+
+        # test stall
+        new_addr = 0x55
+        ctx.set(dut.input.ctrl.en, 0)
+        ctx.set(dut.input.pc, new_addr)
+        await ctx.tick()
+        # stall中のアドレスはDon't care
+        assert ctx.get(dut.output.ctrl.en) == 0
+
+        # test flush
+        new_addr = 0x55
+        ctx.set(dut.input.ctrl.en, 0)
+        ctx.set(dut.side_ctrl.clr, 1)
+        ctx.set(dut.input.pc, new_addr)
+        await ctx.tick()
+        assert ctx.get(dut.output.addr) == 0
+        assert ctx.get(dut.output.ctrl.en) == 0
+
+        # finish flush
+        ctx.set(dut.input.ctrl.en, 1)
+        ctx.set(dut.side_ctrl.clr, 0)
+        ctx.set(dut.input.pc, new_addr)
+        await ctx.tick()
+        assert ctx.get(dut.output.addr) == new_addr
+        assert ctx.get(dut.output.ctrl.en) == 1
+
+    run_sim(f"{test_if_flush_when_stall.__name__}", dut=dut, testbench=bench)

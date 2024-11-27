@@ -33,13 +33,14 @@ class IfStage(wiring.Component):
         m.d.sync += self.output.ctrl.debug.seq_no.eq(seq_no)
 
         # Push Instruction fetch address
-        with m.If(self.input.ctrl.en):
-            with m.If(self.side_ctrl.clr):
-                m.d.sync += self.output.flush()
-            with m.Else():
-                m.d.sync += self.output.push(self.input.pc)
+        with m.If(self.side_ctrl.clr):
+            # stall中にflushがかかった場合は、flushを優先する
+            m.d.sync += self.output.flush()
         with m.Else():
-            m.d.sync += self.output.stall()
+            with m.If(self.input.ctrl.en):
+                m.d.sync += self.output.push(self.input.pc)
+            with m.Else():
+                m.d.sync += self.output.stall()
 
         return m
 
