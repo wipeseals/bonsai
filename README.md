@@ -12,6 +12,8 @@ TODO:
 
 This project is managed with [uv](https://docs.astral.sh/uv/).
 
+### Local Python Environment Setup
+
 ```bash
 # install uv
 $ pip install --upgrade pip
@@ -23,7 +25,7 @@ $ uv python install
 # Synchronize packages
 $ uv sync --all-extras --dev
 
-# Run tests
+# Run all simulations
 $ uv run pytest
 ```
 
@@ -35,6 +37,15 @@ $ uv run bonsai/<design name>.py
 
 # Example
 $ uv run bonsai/stage.py
+
+# TODO: add main design file
+
+```
+
+### Use Docker Compose
+
+```bash
+$ docker-compose run bonsai
 ```
 
 ## Additional Information
