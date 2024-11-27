@@ -3,7 +3,7 @@ from bonsai.stage import IfStage
 from tests.testutil import run_sim
 
 
-def test_if_branch():
+def test_if_flush():
     dut = IfStage()
 
     async def bench(ctx):
@@ -23,7 +23,7 @@ def test_if_branch():
         assert ctx.get(dut.output.addr) == addr
         assert ctx.get(dut.output.ctrl.en) == 1
 
-    run_sim(f"{test_if_branch.__name__}", dut=dut, testbench=bench)
+    run_sim(f"{test_if_flush.__name__}", dut=dut, testbench=bench)
 
 
 def test_if_freerun():
