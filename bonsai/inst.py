@@ -1,189 +1,84 @@
-from amaranth import Format, Print, unsigned
-from amaranth.lib import data, wiring,enum
+from amaranth import Cat, Format, Print, unsigned
+from amaranth.lib import data, wiring, enum
 
 
-class OpCode(enum.IntEnum):
-    # RV32I Base Instruction Set
-    LUI = 0b0110111
-    AUIPC = 0b0010111
+class RegFormat(enum.IntEnum):
+    """
+    RISC-V Instruction Format
+    """
+
+    R = 0
+    I = 1  # noqa: E741
+    S = 2
+    B = 3
+    U = 4
+    J = 5
+
+
+class BaseIntOpcode(enum.IntEnum, shape=7):
+    """
+    Base Integer Instruction Set
+    """
+
+    # add, sub, xor, or, and, sll, srl, sra, slt, sltu
+    REG_REG = 0b0110011
+    # addi, xori, ori, andi, slli, srli, srai, slti, sltiu
+    REG_IMM = 0b0010011
+    # lb, lh, lw, lbu, lhu
+    LOAD = 0b0000011
+    # sb, sh, sw
+    STORE = 0b0100011
+    # beq, bne, blt, bge, bltu, bgeu
+    BRANCH = 0b1100011
+    # jal
     JAL = 0b1101111
+    # jalr
     JALR = 0b1100111
-    BEQ = 0b1100011
-    BNE = 0b1100011
-    BLT = 0b1100011
-    BGE = 0b1100011
-    BLTU = 0b1100011
-    BGEU = 0b1100011
-    LB = 0b0000011
-    LH = 0b0000011
-    LW = 0b0000011
-    LBU = 0b0000011
-    LHU = 0b0000011
-    SB = 0b0100011
-    SH = 0b0100011
-    SW = 0b0100011
-    ADDI = 0b0010011
-    SLTI = 0b0010011
-    SLTIU = 0b0010011
-    XORI = 0b0010011
-    ORI = 0b0010011
-    ANDI = 0b0010011
-    SLLI = 0b0010011
-    SRLI = 0b0010011
-    SRAI = 0b0010011
-    ADD = 0b0110011
-    SUB = 0b0110011
-    SLL = 0b0110011
-    SLT = 0b0110011
-    SLTU = 0b0110011
-    XOR = 0b0110011
-    SRL = 0b0110011
-    SRA = 0b0110011
-    OR = 0b0110011
-    AND = 0b0110011
+    # lui
+    LUI = 0b0110111
+    # auipc
+    AUIPC = 0b0010111
+    # fence, fence.i
     FENCE = 0b0001111
+    # ecall, ebreak, csrrw, csrrs, csrrc, csrrwi, csrrsi, csrrci
     ECALL = 0b1110011
-    EBREAK = 0b1110011
-    CSRRW = 0b1110011
-    CSRRS = 0b1110011
-    CSRRC = 0b1110011
-    CSRRWI = 0b1110011
-    CSRRSI = 0b1110011
-    CSRRCI = 0b1110011
 
-    # RV64I Base Instruction Set (in addition to RV32I)
-    LWU = 0b0000011
-    LD = 0b0000011
-    SD = 0b0100011
-    SLLI = 0b0010011
-    SRLI = 0b0010011
-    SRAI = 0b0010011
-    ADDIW = 0b0011011
-    SLLIW = 0b0011011
-    SRLIW = 0b0011011
-    SRAIW = 0b0011011
-    ADDW = 0b0111011
-    SUBW = 0b0111011
-    SLLW = 0b0111011
-    SRLW = 0b0111011
-    SRAW = 0b0111011
 
-    # RV32M Standard Extension
-    MUL = 0b0110011
-    MULH = 0b0110011
-    MULHSU = 0b0110011
-    MULHU = 0b0110011
-    DIV = 0b0110011
-    DIVU = 0b0110011
-    REM = 0b0110011
-    REMU = 0b0110011
+class RegRegFunc3(enum.IntEnum, shape=3):
+    """
+    Base Integer Register-Register Instruction Set Func3
+    """
 
-    # RV64M Standard Extension (in addition to RV32M)
-    MULW = 0b0111011
-    DIVW = 0b0111011
-    DIVUW = 0b0111011
-    REMW = 0b0111011
-    REMUW = 0b0111011
+    # add, sub
+    ADD_SUB = 0x0
+    # sll
+    SLL = 0x1
+    # slt
+    SLT = 0x2
+    # sltu
+    SLTU = 0x3
+    # xor
+    XOR = 0x4
+    # srl, sra
+    SRL_SRA = 0x5
+    # or
+    OR = 0x6
+    # and
+    AND = 0x7
 
-# RV32A Standard Extension
-00010 aq rl 00000 rs1 010 rd 0101111 LR.W
-00011 aq rl rs2 rs1 010 rd 0101111 SC.W
-00001 aq rl rs2 rs1 010 rd 0101111 AMOSWAP.W
-00000 aq rl rs2 rs1 010 rd 0101111 AMOADD.W
-00100 aq rl rs2 rs1 010 rd 0101111 AMOXOR.W
-01100 aq rl rs2 rs1 010 rd 0101111 AMOAND.W
-01000 aq rl rs2 rs1 010 rd 0101111 AMOOR.W
-10000 aq rl rs2 rs1 010 rd 0101111 AMOMIN.W
-10100 aq rl rs2 rs1 010 rd 0101111 AMOMAX.W
-11000 aq rl rs2 rs1 010 rd 0101111 AMOMINU.W
-11100 aq rl rs2 rs1 010 rd 0101111 AMOMAXU.W
-106 Volume I: RISC-V User-Level ISA V2.2
-31 27 26 25 24 20 19 15 14 12 11 7 6 0
-funct7 rs2 rs1 funct3 rd opcode R-type
-rs3 funct2 rs2 rs1 funct3 rd opcode R4-type
-imm[11:0] rs1 funct3 rd opcode I-type
-imm[11:5] rs2 rs1 funct3 imm[4:0] opcode S-type
-# RV64A Standard Extension (in addition to RV32A)
-00010 aq rl 00000 rs1 011 rd 0101111 LR.D
-00011 aq rl rs2 rs1 011 rd 0101111 SC.D
-00001 aq rl rs2 rs1 011 rd 0101111 AMOSWAP.D
-00000 aq rl rs2 rs1 011 rd 0101111 AMOADD.D
-00100 aq rl rs2 rs1 011 rd 0101111 AMOXOR.D
-01100 aq rl rs2 rs1 011 rd 0101111 AMOAND.D
-01000 aq rl rs2 rs1 011 rd 0101111 AMOOR.D
-10000 aq rl rs2 rs1 011 rd 0101111 AMOMIN.D
-10100 aq rl rs2 rs1 011 rd 0101111 AMOMAX.D
-11000 aq rl rs2 rs1 011 rd 0101111 AMOMINU.D
-11100 aq rl rs2 rs1 011 rd 0101111 AMOMAXU.D
-# RV32F Standard Extension
-imm[11:0] rs1 010 rd 0000111 FLW
-imm[11:5] rs2 rs1 010 imm[4:0] 0100111 FSW
-rs3 00 rs2 rs1 rm rd 1000011 FMADD.S
-rs3 00 rs2 rs1 rm rd 1000111 FMSUB.S
-rs3 00 rs2 rs1 rm rd 1001011 FNMSUB.S
-rs3 00 rs2 rs1 rm rd 1001111 FNMADD.S
-0000000 rs2 rs1 rm rd 1010011 FADD.S
-0000100 rs2 rs1 rm rd 1010011 FSUB.S
-0001000 rs2 rs1 rm rd 1010011 FMUL.S
-0001100 rs2 rs1 rm rd 1010011 FDIV.S
-0101100 00000 rs1 rm rd 1010011 FSQRT.S
-0010000 rs2 rs1 000 rd 1010011 FSGNJ.S
-0010000 rs2 rs1 001 rd 1010011 FSGNJN.S
-0010000 rs2 rs1 010 rd 1010011 FSGNJX.S
-0010100 rs2 rs1 000 rd 1010011 FMIN.S
-0010100 rs2 rs1 001 rd 1010011 FMAX.S
-1100000 00000 rs1 rm rd 1010011 FCVT.W.S
-1100000 00001 rs1 rm rd 1010011 FCVT.WU.S
-1110000 00000 rs1 000 rd 1010011 FMV.X.W
-1010000 rs2 rs1 010 rd 1010011 FEQ.S
-1010000 rs2 rs1 001 rd 1010011 FLT.S
-1010000 rs2 rs1 000 rd 1010011 FLE.S
-1110000 00000 rs1 001 rd 1010011 FCLASS.S
-1101000 00000 rs1 rm rd 1010011 FCVT.S.W
-1101000 00001 rs1 rm rd 1010011 FCVT.S.WU
-1111000 00000 rs1 000 rd 1010011 FMV.W.X
-Volume I: RISC-V User-Level ISA V2.2 107
-31 27 26 25 24 20 19 15 14 12 11 7 6 0
-funct7 rs2 rs1 funct3 rd opcode R-type
-rs3 funct2 rs2 rs1 funct3 rd opcode R4-type
-imm[11:0] rs1 funct3 rd opcode I-type
-imm[11:5] rs2 rs1 funct3 imm[4:0] opcode S-type
-RV64F Standard Extension (in addition to RV32F)
-1100000 00010 rs1 rm rd 1010011 FCVT.L.S
-1100000 00011 rs1 rm rd 1010011 FCVT.LU.S
-1101000 00010 rs1 rm rd 1010011 FCVT.S.L
-1101000 00011 rs1 rm rd 1010011 FCVT.S.LU
-# RV32D Standard Extension
-imm[11:0] rs1 011 rd 0000111 FLD
-imm[11:5] rs2 rs1 011 imm[4:0] 0100111 FSD
-rs3 01 rs2 rs1 rm rd 1000011 FMADD.D
-rs3 01 rs2 rs1 rm rd 1000111 FMSUB.D
-rs3 01 rs2 rs1 rm rd 1001011 FNMSUB.D
-rs3 01 rs2 rs1 rm rd 1001111 FNMADD.D
-0000001 rs2 rs1 rm rd 1010011 FADD.D
-0000101 rs2 rs1 rm rd 1010011 FSUB.D
-0001001 rs2 rs1 rm rd 1010011 FMUL.D
-0001101 rs2 rs1 rm rd 1010011 FDIV.D
-0101101 00000 rs1 rm rd 1010011 FSQRT.D
-0010001 rs2 rs1 000 rd 1010011 FSGNJ.D
-0010001 rs2 rs1 001 rd 1010011 FSGNJN.D
-0010001 rs2 rs1 010 rd 1010011 FSGNJX.D
-0010101 rs2 rs1 000 rd 1010011 FMIN.D
-0010101 rs2 rs1 001 rd 1010011 FMAX.D
-0100000 00001 rs1 rm rd 1010011 FCVT.S.D
-0100001 00000 rs1 rm rd 1010011 FCVT.D.S
-1010001 rs2 rs1 010 rd 1010011 FEQ.D
-1010001 rs2 rs1 001 rd 1010011 FLT.D
-1010001 rs2 rs1 000 rd 1010011 FLE.D
-1110001 00000 rs1 001 rd 1010011 FCLASS.D
-1100001 00000 rs1 rm rd 1010011 FCVT.W.D
-1100001 00001 rs1 rm rd 1010011 FCVT.WU.D
-1101001 00000 rs1 rm rd 1010011 FCVT.D.W
-1101001 00001 rs1 rm rd 1010011 FCVT.D.WU
-RV64D Standard Extension (in addition to RV32D)
-1100001 00010 rs1 rm rd 1010011 FCVT.L.D
-1100001 00011 rs1 rm rd 1010011 FCVT.LU.D
-1110001 00000 rs1 000 rd 1010011 FMV.X.D
-1101001 00010 rs1 rm rd 1010011 FCVT.D.L
-1101001 00011 rs1 rm rd 1010011 FCVT.D.LU
-1111001 00000 rs1 000 rd 1010011 FMV.D.X
+
+class RegRegFunc7(enum.IntEnum, shape=7):
+    """
+    Base Integer Register-Register Instruction Set Func7
+    """
+
+    # sll, slt, sltu, xor, or, and
+    ZERO = 0x00
+    # add
+    ADD = 0x00
+    # sub, sra
+    SUB = 0x20
+    # srl
+    SRL = 0x00
+    # sra
+    SRA = 0x20
