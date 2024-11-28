@@ -29,7 +29,6 @@ class IfStage(wiring.Component):
         debug = Signal(pipeline.StageCtrlDebug)
         m.d.sync += debug.cyc.eq(side_ctrl.cyc)
 
-        # Push Instruction fetch address
         with m.If(side_ctrl.clr):
             # stall中にflushがかかった場合は、flushを優先する
             m.d.sync += output.flush()
@@ -50,7 +49,7 @@ class IsStage(wiring.Component):
     """
 
     input: In(pipeline.IfIsReg)
-    output: Out(pipeline.IsRfReg)
+    output: Out(pipeline.IsIdReg)
     side_ctrl: In(pipeline.SideCtrl)
 
     def __init__(self, init_data: Any = []):
@@ -62,7 +61,7 @@ class IsStage(wiring.Component):
 
         # 型定義得るために追加
         input: pipeline.IfIsReg = self.input
-        output: pipeline.IsRfReg = self.output
+        output: pipeline.IsIdReg = self.output
         side_ctrl: pipeline.SideCtrl = self.side_ctrl
 
         # L1 Cache Body
@@ -80,7 +79,6 @@ class IsStage(wiring.Component):
             rd_port.addr.eq(input.addr.shift_right(config.INST_ADDR_SHIFT)),
         ]
 
-        # Push Instruction fetch address
         with m.If(side_ctrl.clr):
             # stall中にflushがかかった場合は、flushを優先する
             m.d.sync += output.flush()
@@ -94,6 +92,34 @@ class IsStage(wiring.Component):
                 )
             with m.Else():
                 m.d.sync += output.stall()
+
+        return m
+
+
+class IdStage(wiring.Component):
+    """
+    Instruction Decode Stage
+    """
+
+    input: In(pipeline.IsIdReg)
+    output: Out(pipeline.IdExReg)
+    side_ctrl: In(pipeline.SideCtrl)
+
+    def elaborate(self, platform):
+        m = Module()
+
+        # 型定義得るために追加
+        input: pipeline.IsIdReg = self.input
+        output: pipeline.IdExReg = self.output
+        side_ctrl: pipeline.SideCtrl = self.side_ctrl
+
+        with m.If(side_ctrl.clr):
+            pass  #: TODO
+        with m.Else():
+            with m.If(input.ctrl.en):
+                pass  #: TODO
+            with m.Else():
+                pass  #: TODO
 
         return m
 

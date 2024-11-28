@@ -107,7 +107,7 @@ class IfIsReg(data.Struct):
         ]
 
 
-class IsRfReg(data.Struct):
+class IsIdReg(data.Struct):
     """
     Register Fetch Register
     """
@@ -166,7 +166,7 @@ class IsRfReg(data.Struct):
         ]
 
 
-class RfExReg(data.Struct):
+class IdExReg(data.Struct):
     # Control signals
     ctrl: StageCtrl
 
