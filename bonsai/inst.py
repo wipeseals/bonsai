@@ -1,8 +1,11 @@
+from typing import Callable, Optional
 from amaranth import Cat, Format, Print, unsigned
 from amaranth.lib import data, wiring, enum
 
+from pydantic import BaseModel
 
-class RegFormat(enum.IntEnum):
+
+class InstFormat(enum.IntEnum):
     """
     RISC-V Instruction Format
     """
@@ -15,70 +18,78 @@ class RegFormat(enum.IntEnum):
     J = 5
 
 
-class BaseIntOpcode(enum.IntEnum, shape=7):
+class Opcode(enum.IntEnum, shape=7):
     """
-    Base Integer Instruction Set
+    Instruction Opcode
     """
 
-    # add, sub, xor, or, and, sll, srl, sra, slt, sltu
-    REG_REG = 0b0110011
-    # addi, xori, ori, andi, slli, srli, srai, slti, sltiu
-    REG_IMM = 0b0010011
-    # lb, lh, lw, lbu, lhu
-    LOAD = 0b0000011
-    # sb, sh, sw
-    STORE = 0b0100011
-    # beq, bne, blt, bge, bltu, bgeu
-    BRANCH = 0b1100011
-    # jal
-    JAL = 0b1101111
-    # jalr
-    JALR = 0b1100111
-    # lui
     LUI = 0b0110111
-    # auipc
     AUIPC = 0b0010111
-    # fence, fence.i
-    FENCE = 0b0001111
-    # ecall, ebreak, csrrw, csrrs, csrrc, csrrwi, csrrsi, csrrci
-    ECALL = 0b1110011
+    JAL = 0b1101111
+    JALR = 0b1100111
+    BRANCH = 0b1100011
+    LOAD = 0b0000011
+    STORE = 0b0100011
+    OP_IMM = 0b0010011
+    OP = 0b0110011
+    MISC_MEM = 0b0001111
+    SYSTEM = 0b1110011
 
 
-class RegRegFunc3(enum.IntEnum, shape=3):
+class ExArgsR(data.Struct):
     """
-    Base Integer Register-Register Instruction Set Func3
-    """
-
-    # add, sub
-    ADD_SUB = 0x0
-    # sll
-    SLL = 0x1
-    # slt
-    SLT = 0x2
-    # sltu
-    SLTU = 0x3
-    # xor
-    XOR = 0x4
-    # srl, sra
-    SRL_SRA = 0x5
-    # or
-    OR = 0x6
-    # and
-    AND = 0x7
-
-
-class RegRegFunc7(enum.IntEnum, shape=7):
-    """
-    Base Integer Register-Register Instruction Set Func7
+    R-Type Operand
     """
 
-    # sll, slt, sltu, xor, or, and
-    ZERO = 0x00
-    # add
-    ADD = 0x00
-    # sub, sra
-    SUB = 0x20
-    # srl
-    SRL = 0x00
-    # sra
-    SRA = 0x20
+    rs1: unsigned(32)
+    rs2: unsigned(32)
+
+
+class ExRetR(data.Struct):
+    """
+    R-Type Result
+    """
+
+    rd: unsigned(32)
+
+
+class InstDef(BaseModel):
+    """
+    Instruction
+    """
+
+    # 表示名
+    inst: str
+    # 概要
+    name: str
+    # 命令形式
+    fmt: InstFormat
+    # 命令コード
+    opcode: unsigned(7)
+    # 機能コード3
+    funct3: Optional[unsigned(3)]
+    # 機能コード7
+    funct7: Optional[unsigned(7)]
+    # 処理概要
+    desc: str
+
+    # R-Typeの場合の演算 rd = func(rs1, rs2)
+    funcR: Optional[Callable[[unsigned(32), unsigned(32)], unsigned(32)]] = None
+    # I-Typeの場合の演算 rd = func(rs1, imm)
+    funcI: Optional[Callable[[unsigned(32), unsigned(32)], unsigned(32)]] = None
+    # S-Typeの場合の演算 data, mask = func(rs1, imm)
+    funcS: Optional[
+        Callable[[unsigned(32), unsigned(32)], (unsigned(32), unsigned(32))]
+    ] = None
+    # B-Typeの場合の演算 need_branch, new_pc = func(rs1, rs2, imm)
+    funcB: Optional[
+        Callable[
+            [unsigned(32), unsigned(32), unsigned(32)], (unsigned(1), unsigned(32))
+        ]
+    ] = None
+    # U-Typeの場合の演算 rd = func(imm, pc)
+    funcU: Optional[Callable[[unsigned(32), unsigned(32)], unsigned(32)]] = None
+    # J-Typeの場合の演算 rd, new_pc = func(imm, pc)
+    funcJ: Optional[
+        Callable[[unsigned(32), unsigned(32)], (unsigned(32), unsigned(32))]
+    ] = None

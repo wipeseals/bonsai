@@ -8,6 +8,7 @@ dependencies = [
     "amaranth-boards",
     "amaranth[builtin-yosys]>=0.5.3",
     "asyncio>=3.4.3",
+    "pydantic>=2.10.2",
 ]
 
 [dependency-groups]
