@@ -3,7 +3,7 @@ from bonsai.stage import IfStage
 from tests.testutil import run_sim
 
 
-def test_if_flush():
+def test_if_jump():
     dut = IfStage()
 
     async def bench(ctx):
