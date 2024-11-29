@@ -1,8 +1,11 @@
+import stat
 from typing import Callable, Optional
-from amaranth import Cat, Format, Print, unsigned
+from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
 from amaranth.lib import data, wiring, enum
 
 from pydantic import BaseModel
+
+from bonsai import config
 
 
 class InstFormat(enum.IntEnum):
@@ -35,61 +38,26 @@ class Opcode(enum.IntEnum, shape=7):
     MISC_MEM = 0b0001111
     SYSTEM = 0b1110011
 
+    @classmethod
+    def inst_format(
+        cls, m: Module, opcode: Signal, format: Signal, domain: str = "comb"
+    ) -> Callable:
+        """
+        Get the instruction format from the opcode
+        """
 
-class ExArgsR(data.Struct):
-    """
-    R-Type Operand
-    """
-
-    rs1: unsigned(32)
-    rs2: unsigned(32)
-
-
-class ExRetR(data.Struct):
-    """
-    R-Type Result
-    """
-
-    rd: unsigned(32)
-
-
-class InstDef(BaseModel):
-    """
-    Instruction
-    """
-
-    # 表示名
-    inst: str
-    # 概要
-    name: str
-    # 命令形式
-    fmt: InstFormat
-    # 命令コード
-    opcode: unsigned(7)
-    # 機能コード3
-    funct3: Optional[unsigned(3)]
-    # 機能コード7
-    funct7: Optional[unsigned(7)]
-    # 処理概要
-    desc: str
-
-    # R-Typeの場合の演算 rd = func(rs1, rs2)
-    funcR: Optional[Callable[[unsigned(32), unsigned(32)], unsigned(32)]] = None
-    # I-Typeの場合の演算 rd = func(rs1, imm)
-    funcI: Optional[Callable[[unsigned(32), unsigned(32)], unsigned(32)]] = None
-    # S-Typeの場合の演算 data, mask = func(rs1, imm)
-    funcS: Optional[
-        Callable[[unsigned(32), unsigned(32)], (unsigned(32), unsigned(32))]
-    ] = None
-    # B-Typeの場合の演算 need_branch, new_pc = func(rs1, rs2, imm)
-    funcB: Optional[
-        Callable[
-            [unsigned(32), unsigned(32), unsigned(32)], (unsigned(1), unsigned(32))
-        ]
-    ] = None
-    # U-Typeの場合の演算 rd = func(imm, pc)
-    funcU: Optional[Callable[[unsigned(32), unsigned(32)], unsigned(32)]] = None
-    # J-Typeの場合の演算 rd, new_pc = func(imm, pc)
-    funcJ: Optional[
-        Callable[[unsigned(32), unsigned(32)], (unsigned(32), unsigned(32))]
-    ] = None
+        with m.Switch(opcode):
+            with m.Case(cls.LUI, cls.AUIPC):
+                m.d[domain] += format.eq(InstFormat.U)
+            with m.Case(cls.JAL, cls.JALR):
+                m.d[domain] += format.eq(InstFormat.J)
+            with m.Case(cls.BRANCH):
+                m.d[domain] += format.eq(InstFormat.B)
+            with m.Case(cls.LOAD, cls.STORE, cls.OP_IMM, cls.OP):
+                m.d[domain] += format.eq(InstFormat.I)
+            with m.Case(cls.MISC_MEM, cls.SYSTEM):
+                m.d[domain] += format.eq(InstFormat.I)
+            with m.Default():
+                Assert(0, Format("invalid opcode: {:07b}", opcode))
+                # add 0 = 0 + 0 流す?
+                m.d[domain] += format.eq(InstFormat.R)

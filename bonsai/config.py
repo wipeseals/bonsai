@@ -23,7 +23,7 @@ def dist_file_path(file_name: str) -> str:
 
 
 #####################################################
-# CPU Register and Memory Configuration
+# CPU Register and Memory Configuration (values)
 
 # Register width (RV32 or RV64 or RV128)
 REG_WIDTH: int = 32
@@ -43,6 +43,17 @@ INST_BYTES: int = INST_WIDTH // 8
 # Bitshift for PC to get the instruction address (Compress=1, RV32=2, RV64=3)
 INST_ADDR_SHIFT: int = exact_log2(INST_BYTES)
 
+# Number of general purpose registers
+NUM_GPR: int = 32
+
+# bit width of general purpose register address
+GPR_INDEX_WIDTH: int = exact_log2(NUM_GPR)
+
+# opcode width
+OPCODE_WIDTH: int = 7
+
+#####################################################
+# CPU Register and Memory Configuration (shapes)
 
 # Register shape
 REG_SHAPE: Shape = unsigned(REG_WIDTH)
@@ -56,6 +67,14 @@ DATA_SHAPE: Shape = unsigned(DATA_WIDTH)
 # Instruction shape
 INST_SHAPE: Shape = unsigned(INST_WIDTH)
 
+# general purpose register shape
+GPR_SHAPE: Shape = unsigned(REG_WIDTH)
+
+# general purpose register index shape
+GPR_INDEX_SHAPE: Shape = unsigned(GPR_INDEX_WIDTH)
+
+# opcode shape
+OPCODE_SHAPE: Shape = unsigned(OPCODE_WIDTH)
 
 #####################################################
 # L1 Cache Configuration
