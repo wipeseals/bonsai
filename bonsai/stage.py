@@ -17,7 +17,7 @@ class IfStage(wiring.Component):
 
     input: In(pipeline.IfReg)
     output: Out(pipeline.IfIsReg)
-    side_ctrl: In(pipeline.SideCtrl)
+    side: In(pipeline.SideCtrl)
 
     def elaborate(self, platform):
         m = Module()
@@ -25,13 +25,13 @@ class IfStage(wiring.Component):
         # 型定義得るために追加
         input: pipeline.IfReg = self.input
         output: pipeline.IfIsReg = self.output
-        side_ctrl: pipeline.SideCtrl = self.side_ctrl
+        side: pipeline.SideCtrl = self.side
 
         # Debug sequence counter
         debug = Signal(pipeline.StageCtrlDebug)
-        m.d.sync += debug.cyc.eq(side_ctrl.cyc)
+        m.d.sync += debug.cyc.eq(side.cyc)
 
-        with m.If(side_ctrl.clr):
+        with m.If(side.clr):
             # stall中にflushがかかった場合は、flushを優先する
             output.flush(module=m, domain="sync")
         with m.Else():
@@ -52,7 +52,7 @@ class IsStage(wiring.Component):
 
     input: In(pipeline.IfIsReg)
     output: Out(pipeline.IsIdReg)
-    side_ctrl: In(pipeline.SideCtrl)
+    side: In(pipeline.SideCtrl)
 
     def __init__(self, init_data: Any = []):
         self._init_data = init_data
@@ -64,7 +64,7 @@ class IsStage(wiring.Component):
         # 型定義得るために追加
         input: pipeline.IfIsReg = self.input
         output: pipeline.IsIdReg = self.output
-        side_ctrl: pipeline.SideCtrl = self.side_ctrl
+        side: pipeline.SideCtrl = self.side
 
         # L1 Cache Body
         m.submodules.mem = mem = memory.Memory(
@@ -81,7 +81,7 @@ class IsStage(wiring.Component):
             rd_port.addr.eq(input.addr.shift_right(config.INST_ADDR_SHIFT)),
         ]
 
-        with m.If(side_ctrl.clr):
+        with m.If(side.clr):
             # stall中にflushがかかった場合は、flushを優先する
             output.flush(module=m, domain="sync")
         with m.Else():
@@ -112,7 +112,8 @@ class IdStage(wiring.Component):
 
     input: In(pipeline.IsIdReg)
     output: Out(pipeline.IdExReg)
-    side_ctrl: In(pipeline.SideCtrl)
+    side: In(pipeline.SideCtrl)
+    wb: In(pipeline.WriteBackCtrl)
 
     def elaborate(self, platform):
         m = Module()
@@ -120,23 +121,18 @@ class IdStage(wiring.Component):
         # 型定義得るために追加
         input: pipeline.IsIdReg = self.input
         output: pipeline.IdExReg = self.output
-        side_ctrl: pipeline.SideCtrl = self.side_ctrl
+        side: pipeline.SideCtrl = self.side
+        wb: pipeline.WriteBackCtrl = self.wb
 
         # inst分解: 共通部分
-        addr = Signal(config.ADDR_SHAPE)
-        inst = Signal(config.INST_SHAPE)
-        opcode = Signal(Opcode)
-        fmt = Signal(InstFormat)
-
         m.d.comb += [
-            addr.eq(input.addr),
-            inst.eq(input.inst),
-            opcode.eq(input.inst[6:0]),
-            fmt.eq(opcode.inst_format()),
+            output.addr.eq(input.addr),
+            output.inst.eq(input.inst),
+            output.opcode.eq(input.inst[6:0]),
         ]
 
-        with m.If(side_ctrl.clr):
-            pass  #: TODO
+        with m.If(side.clr):
+            output.flush(module=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
                 pass  #: TODO

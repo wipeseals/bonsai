@@ -10,7 +10,7 @@ def test_if_jump():
         # initial
         addr = 0xAA
         ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 0)
+        ctx.set(dut.side.clr, 0)
         ctx.set(dut.input.pc, addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == addr
@@ -99,14 +99,14 @@ def test_if_flush():
         # test flush
         new_addr = 0x55
         ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 1)
+        ctx.set(dut.side.clr, 1)
         ctx.set(dut.input.pc, new_addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == 0
         assert ctx.get(dut.output.ctrl.en) == 0
         # finish flush
         ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 0)
+        ctx.set(dut.side.clr, 0)
         ctx.set(dut.input.pc, new_addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == new_addr
@@ -138,7 +138,7 @@ def test_if_flush_when_stall():
         # test flush
         new_addr = 0x55
         ctx.set(dut.input.ctrl.en, 0)
-        ctx.set(dut.side_ctrl.clr, 1)
+        ctx.set(dut.side.clr, 1)
         ctx.set(dut.input.pc, new_addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == 0
@@ -146,7 +146,7 @@ def test_if_flush_when_stall():
 
         # finish flush
         ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 0)
+        ctx.set(dut.side.clr, 0)
         ctx.set(dut.input.pc, new_addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == new_addr

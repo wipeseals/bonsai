@@ -46,8 +46,14 @@ INST_ADDR_SHIFT: int = exact_log2(INST_BYTES)
 # Number of general purpose registers
 NUM_GPR: int = 32
 
-# bit width of general purpose register address
-GPR_INDEX_WIDTH: int = exact_log2(NUM_GPR)
+# Number of floating point registers
+NUM_FPR: int = 32
+
+# Number of register file index (gpr + fpr)
+NUM_REGFILE_INDEX: int = NUM_GPR + NUM_FPR
+
+# Number of gpr and fpr registers
+REFGILE_INDEX_WIDTH: int = exact_log2(NUM_REGFILE_INDEX)
 
 # opcode width
 OPCODE_WIDTH: int = 7
@@ -70,8 +76,8 @@ INST_SHAPE: Shape = unsigned(INST_WIDTH)
 # general purpose register shape
 GPR_SHAPE: Shape = unsigned(REG_WIDTH)
 
-# general purpose register index shape
-GPR_INDEX_SHAPE: Shape = unsigned(GPR_INDEX_WIDTH)
+# register index shape (gpr + fpr)
+REGFILE_INDEX_SHAPE: Shape = unsigned(REFGILE_INDEX_WIDTH)
 
 # opcode shape
 OPCODE_SHAPE: Shape = unsigned(OPCODE_WIDTH)

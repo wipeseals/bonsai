@@ -20,7 +20,7 @@ def test_is_flush():
         # initial
         addr = 0xAA
         ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 0)
+        ctx.set(dut.side.clr, 0)
         ctx.set(dut.input.addr, addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == addr
@@ -28,7 +28,7 @@ def test_is_flush():
         # flush
         addr = 0x55
         ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 1)
+        ctx.set(dut.side.clr, 1)
         ctx.set(dut.input.addr, addr)
         await ctx.tick()
         assert ctx.get(dut.output.addr) == 0
@@ -48,7 +48,7 @@ def test_is_freerun():
             ctx.set(dut.input.addr, addr)
             ctx.set(dut.input.ctrl.debug.cyc, i)
             ctx.set(dut.input.ctrl.debug.seqno, i)
-            ctx.set(dut.side_ctrl.clr, 0)
+            ctx.set(dut.side.clr, 0)
             await ctx.tick()
             assert ctx.get(dut.output.addr) == addr
             assert ctx.get(dut.output.inst) == inst_test_data[i].value
@@ -75,7 +75,7 @@ def test_is_stall():
             ctx.set(dut.input.addr, addr)
             ctx.set(dut.input.ctrl.debug.cyc, i)
             ctx.set(dut.input.ctrl.debug.seqno, i)
-            ctx.set(dut.side_ctrl.clr, 0)
+            ctx.set(dut.side.clr, 0)
             await ctx.tick()
             if is_stall:
                 # assert ctx.get(dut.output.addr) == 0 # Don't care
@@ -111,9 +111,9 @@ def test_is_flush_when_stall():
             ctx.set(dut.input.ctrl.debug.cyc, i)
             ctx.set(dut.input.ctrl.debug.seqno, i)
             if is_flush:
-                ctx.set(dut.side_ctrl.clr, 1)
+                ctx.set(dut.side.clr, 1)
             else:
-                ctx.set(dut.side_ctrl.clr, 0)
+                ctx.set(dut.side.clr, 0)
 
             await ctx.tick()
             if is_flush:
