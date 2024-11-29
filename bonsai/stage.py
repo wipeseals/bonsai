@@ -1,8 +1,10 @@
+from ast import mod
 from typing import Any
 from amaranth import Const, Format, Module, Mux, Print, Shape, Signal, unsigned
 from amaranth.lib import wiring, enum, data, memory, stream
 from amaranth.lib.wiring import In, Out
 
+from inst import InstFormat, Opcode
 import pipeline
 import config
 import util
@@ -31,14 +33,14 @@ class IfStage(wiring.Component):
 
         with m.If(side_ctrl.clr):
             # stall中にflushがかかった場合は、flushを優先する
-            m.d.sync += output.flush()
+            output.flush(module=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
-                m.d.sync += output.push(addr=input.pc, debug=debug)
+                output.push(module=m, addr=input.pc, debug=debug, domain="sync")
                 # fetch sequence number更新
                 m.d.sync += debug.seqno.eq(debug.seqno + 1)
             with m.Else():
-                m.d.sync += output.stall()
+                output.stall(module=m, domain="sync")
 
         return m
 
@@ -81,17 +83,24 @@ class IsStage(wiring.Component):
 
         with m.If(side_ctrl.clr):
             # stall中にflushがかかった場合は、flushを優先する
-            m.d.sync += output.flush()
+            output.flush(module=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
                 # TODO: CacheMiss時の処理を追加
 
                 # メモリから出力されている命令を次のステージに渡す
-                m.d.sync += output.push(
-                    addr=input.addr, inst=rd_port.data, debug=input.ctrl.debug
+                output.push(
+                    module=m,
+                    domain="sync",
+                    addr=input.addr,
+                    inst=rd_port.data,
+                    debug=input.ctrl.debug,
                 )
             with m.Else():
-                m.d.sync += output.stall()
+                output.stall(
+                    module=m,
+                    domain="sync",
+                )
 
         return m
 
@@ -112,6 +121,19 @@ class IdStage(wiring.Component):
         input: pipeline.IsIdReg = self.input
         output: pipeline.IdExReg = self.output
         side_ctrl: pipeline.SideCtrl = self.side_ctrl
+
+        # inst分解: 共通部分
+        addr = Signal(config.ADDR_SHAPE)
+        inst = Signal(config.INST_SHAPE)
+        opcode = Signal(Opcode)
+        fmt = Signal(InstFormat)
+
+        m.d.comb += [
+            addr.eq(input.addr),
+            inst.eq(input.inst),
+            opcode.eq(input.inst[6:0]),
+            fmt.eq(opcode.inst_format()),
+        ]
 
         with m.If(side_ctrl.clr):
             pass  #: TODO
