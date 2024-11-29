@@ -35,15 +35,15 @@ class IfStage(wiring.Component):
 
         with m.If(side.clr):
             # stall中にflushがかかった場合は、flushを優先する
-            output.flush(module=m, domain="sync")
+            output.flush(m=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
                 # IF stageではPC決定のみ。Is/If regの値を下に次サイクルでIs stageが読み出し
-                output.push(module=m, addr=input.pc, debug=debug, domain="sync")
+                output.push(m=m, addr=input.pc, debug=debug, domain="sync")
                 # デバッグ記録用のfetch sequence number更新
                 m.d.sync += debug.seqno.eq(debug.seqno + 1)
             with m.Else():
-                output.stall(module=m, domain="sync")
+                output.stall(m=m, domain="sync")
 
         return m
 
@@ -86,14 +86,14 @@ class IsStage(wiring.Component):
 
         with m.If(side.clr):
             # stall中にflushがかかった場合は、flushを優先する
-            output.flush(module=m, domain="sync")
+            output.flush(m=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
                 # TODO: CacheMiss時の処理を追加
 
                 # メモリから出力されている命令を次のステージに渡す
                 output.push(
-                    module=m,
+                    m=m,
                     domain="sync",
                     addr=input.addr,
                     inst=rd_port.data,
@@ -101,7 +101,7 @@ class IsStage(wiring.Component):
                 )
             with m.Else():
                 output.stall(
-                    module=m,
+                    m=m,
                     domain="sync",
                 )
 
@@ -135,7 +135,7 @@ class IdStage(wiring.Component):
         ]
 
         with m.If(side.clr):
-            output.flush(module=m, domain="sync")
+            output.flush(m=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
                 pass  #: TODO

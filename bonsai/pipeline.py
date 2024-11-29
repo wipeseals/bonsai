@@ -1,8 +1,8 @@
 from typing import List
-from amaranth import Format, Module, Print, unsigned
+from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
 from amaranth.lib import data, wiring
 
-from inst import InstFormat, Opcode
+from inst import InstFormat, Opcode, Operand
 import config
 
 
@@ -23,7 +23,7 @@ class StageCtrlDebug(data.Struct):
 
 class StageCtrl(data.Struct):
     """
-    Stage間で共通の制御信号
+    Common control signals between stages
     """
 
     # Enable the stage (for stall)
@@ -34,13 +34,30 @@ class StageCtrl(data.Struct):
 
 class SideCtrl(data.Struct):
     """
-    Stage間の外からの共通制御信号
+    Common control signals from outside the stage
     """
 
     # clear output (for pipeline flush)
     clr: unsigned(1)
     # global cycle counter
     cyc: config.REG_SHAPE
+
+
+class BranchCtrl(data.Struct):
+    """
+    Control signals to pass the PC from the ID or EX stage to the IF stage
+    """
+
+    # Branch enable
+    en: unsigned(1)
+    # Branch target address
+    addr: config.ADDR_SHAPE
+
+    def clear(self, m: Module, domain: str):
+        """
+        Clear the branch control
+        """
+        m.d[domain] += [self.en.eq(0), self.addr.eq(0)]
 
 
 class WriteBackCtrl(data.Struct):
@@ -83,7 +100,7 @@ class IfIsReg(data.Struct):
 
     def push(
         self,
-        module: Module,
+        m: Module,
         domain: str,
         addr: config.ADDR_SHAPE,
         debug: StageCtrlDebug,
@@ -91,7 +108,7 @@ class IfIsReg(data.Struct):
         """
         Push the instruction fetch address
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 次段にデータを渡す
             self.ctrl.en.eq(1),
             self.addr.eq(addr),
@@ -106,22 +123,22 @@ class IfIsReg(data.Struct):
             ),
         ]
 
-    def stall(self, module: Module, domain: str):
+    def stall(self, m: Module, domain: str):
         """
         Stall the instruction fetch
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 次段を止める
             self.ctrl.en.eq(0),
             # データを示すレジスタはすべて Don't care
             Print("[IF] stall"),
         ]
 
-    def flush(self, module: Module, domain: str):
+    def flush(self, m: Module, domain: str):
         """
         Flush the instruction fetch
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 現状設計は0 dataのfetchはさせない
             self.ctrl.en.eq(0),
             # 明示的にクリア
@@ -146,7 +163,7 @@ class IsIdReg(data.Struct):
 
     def push(
         self,
-        module: Module,
+        m: Module,
         domain: str,
         addr: config.ADDR_SHAPE,
         inst: config.INST_SHAPE,
@@ -155,7 +172,7 @@ class IsIdReg(data.Struct):
         """
         Push the instruction fetch address
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 次段にデータを渡す
             self.ctrl.en.eq(1),
             self.addr.eq(addr),
@@ -172,22 +189,22 @@ class IsIdReg(data.Struct):
             ),
         ]
 
-    def stall(self, module: Module, domain: str):
+    def stall(self, m: Module, domain: str):
         """
         Stall the instruction fetch
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 次段を止める
             self.ctrl.en.eq(0),
             # データを示すレジスタはすべて Don't care
             Print("[IS] stall"),
         ]
 
-    def flush(self, module: Module, domain: str):
+    def flush(self, m: Module, domain: str):
         """
         Flush the instruction fetch
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 現状設計は0 dataのfetchはさせない
             self.ctrl.en.eq(0),
             # 明示的にクリア
@@ -202,51 +219,106 @@ class IdExReg(data.Struct):
     Register Fetch Register
     """
 
-    # Control signals
+    ###################################
+    # control signals
     ctrl: StageCtrl
+
+    ###################################
+    # previous stage data
+
     # Instruction Address
     addr: config.ADDR_SHAPE
     # Instruction Data
     inst: config.INST_SHAPE
 
+    ###################################
+    # instruction decode result
+
     # opcode
     opcode: Opcode
+    # Undefined opcode error
+    undef: unsigned(1)
     # Instruction Format
     fmt: InstFormat
-    # funct3
-    funct3: unsigned(3)
-    # funct5 (for atomic)
-    funct5: unsigned(5)
-    # funct7
-    funct7: unsigned(7)
+    # operand (funct3, funct5, funct7, rs1, rs2, rd, imm)
+    operand: Operand
 
-    # Source Register 1 Enable
-    rs1_en: unsigned(1)
-    # Source Register 1 index
-    rs1_index: config.REGFILE_INDEX_SHAPE
-    # Source Register 1
-    rs1: config.REG_SHAPE
+    ###################################
+    # branch/jump target
+    br: BranchCtrl
 
-    # Source Register 2 Enable
-    rs2_en: unsigned(1)
-    # Source Register 2 index
-    rs2_index: config.REGFILE_INDEX_SHAPE
-    # Source Register 2
-    rs2: config.REG_SHAPE
+    def _decode_inst(
+        self,
+        m: Module,
+        inst: config.INST_SHAPE,
+        push_domain: str,
+    ):
+        """
+        Instruction decode logic.
 
-    # Destination Register Enable
-    rd_en: unsigned(1)
-    # Destination Register index
-    rd_index: config.REGFILE_INDEX_SHAPE
+        When updating values to be set in IdExReg, use the specified push_domain.
+        For local calculations, use comb to calculate directly without going through flip-flops.
+        It is assumed that it can operate even if comb is specified for push_domain.
+        """
 
-    # Immediate Value
-    imm: config.REG_SHAPE
-    # Immediate Value (sign extended)
-    imm_sext: config.REG_SHAPE
+        # opcode取得 + Inst Format判定
+        # 後のoperand取得で使うが、遅延させたくないのでcombの変数も残す
+        opcode = Signal(Opcode)
+        fmt = Signal(InstFormat)
+
+        m.d[push_domain] += [
+            # combのopcodeを割り付け
+            self.opcode.eq(opcode),
+            # combのfmtを割り付け
+            self.fmt.eq(fmt),
+            # undefは0にしておくが、後続の処理で1になる場合がある
+            self.undef.eq(0),
+        ]
+
+        # Opcode取得 + (Opcode分岐 -> Inst Format判定)
+        m.d.comb += opcode.eq(inst[6:0])
+        with m.Switch(opcode):
+            with m.Case(Opcode.LUI):
+                m.d.comb += fmt.eq(InstFormat.U)
+            with m.Case(Opcode.AUIPC):
+                m.d.comb += fmt.eq(InstFormat.U)
+            with m.Case(Opcode.JAL):
+                m.d.comb += fmt.eq(InstFormat.J)
+            with m.Case(Opcode.JALR):
+                m.d.comb += fmt.eq(InstFormat.I)
+            with m.Case(Opcode.BRANCH):
+                m.d.comb += fmt.eq(InstFormat.B)
+            with m.Case(Opcode.LOAD):
+                m.d.comb += fmt.eq(InstFormat.I)
+            with m.Case(Opcode.STORE):
+                m.d.comb += fmt.eq(InstFormat.S)
+            with m.Case(Opcode.OP_IMM):
+                m.d.comb += fmt.eq(InstFormat.I)
+            with m.Case(Opcode.OP):
+                m.d.comb += fmt.eq(InstFormat.R)
+            with m.Case(Opcode.MISC_MEM):
+                m.d.comb += fmt.eq(InstFormat.I)
+            with m.Case(Opcode.SYSTEM):
+                m.d.comb += fmt.eq(InstFormat.I)
+            with m.Default():
+                m.d.comb += fmt.eq(InstFormat.R)
+                # undefined opcode通知
+                m.d[push_domain] += [
+                    self.undef.eq(1),
+                    Assert(
+                        0, Format("[ID] Undefined instruction: {:07b}", self.opcode)
+                    ),
+                ]
+
+        # operand初期値設定 (後から追加した場合、後の内容が優先される)
+        self.operand.clear(m=m, domain=push_domain)
+        self.br.clear(m=m, domain=push_domain)
+
+        # TODO: formatごとに値を設定
 
     def push(
         self,
-        module: Module,
+        m: Module,
         domain: str,
         addr: config.ADDR_SHAPE,
         inst: config.INST_SHAPE,
@@ -256,15 +328,17 @@ class IdExReg(data.Struct):
         Push the instruction decode result
         """
         # 次段にデータを渡す
-        module.d[domain] += [
+        m.d[domain] += [
             self.ctrl.en.eq(1),
             self.addr.eq(addr),
             self.inst.eq(inst),
         ]
-        # inst分解
+
+        # 命令Decode結果追加
+        self._decode_inst(m=m, inst=inst, push_domain=domain)
 
         # デバッグ情報
-        module.d[domain] += [
+        m.d[domain] += [
             self.ctrl.debug.eq(debug),
             Print(
                 Format(
@@ -277,22 +351,24 @@ class IdExReg(data.Struct):
             ),
         ]
 
-    def stall(self, module: Module, domain: str):
+    def stall(self, m: Module, domain: str):
         """
         Stall the instruction decode
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 次段を止める
             self.ctrl.en.eq(0),
+            # branch ctrlは念の為明示的に無効化
+            self.br.en.eq(0),
             # データを示すレジスタはすべて Don't care
             Print("[ID] stall"),
         ]
 
-    def flush(self, module: Module, domain: str):
+    def flush(self, m: Module, domain: str):
         """
         Flush the instruction decode
         """
-        module.d[domain] += [
+        m.d[domain] += [
             # 現状設計は0 dataのfetchはさせない
             self.ctrl.en.eq(0),
             # 明示的にクリア
@@ -300,19 +376,15 @@ class IdExReg(data.Struct):
             self.inst.eq(0),
             self.opcode.eq(0),
             self.fmt.eq(0),
-            self.funct3.eq(0),
-            self.funct5.eq(0),
-            self.funct7.eq(0),
-            self.rs1_en.eq(0),
-            self.rs1_index.eq(0),
-            self.rs1.eq(0),
-            self.rs2_en.eq(0),
-            self.rs2_index.eq(0),
-            self.rs2.eq(0),
-            self.rd_en.eq(0),
-            self.rd_index.eq(0),
-            self.imm.eq(0),
-            self.imm_sext.eq(0),
+            self.undef.eq(0),
+        ]
+
+        # operand, branch ctrlもクリア
+        self.operand.clear(m, domain)
+        self.br.clear(m, domain)
+
+        # debug print
+        m.d[domain] += [
             Print("[ID] flush"),
         ]
 

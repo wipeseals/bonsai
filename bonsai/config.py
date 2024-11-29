@@ -1,8 +1,8 @@
 import os
-from amaranth import Shape, unsigned
+from amaranth import Shape, signed, unsigned
 from amaranth.utils import exact_log2
 
-# TODO: dataclassで撒いていたが、Variable Annotation での定義時に参照できず相性が悪いのでglobalに移動している
+# NOTE: dataclassで撒いていたが、Variable Annotation での定義時に参照できず相性が悪いのでglobalに移動している
 #       Componentのsuper().__init__()で定義しても良かったが、あまりきれいではなかったので一旦保留している
 
 #####################################################
@@ -63,6 +63,9 @@ OPCODE_WIDTH: int = 7
 
 # Register shape
 REG_SHAPE: Shape = unsigned(REG_WIDTH)
+
+# Register shape (signed)
+SREG_SHAPE_SIGNED: Shape = signed(REG_WIDTH)
 
 # Memory address shape
 ADDR_SHAPE: Shape = unsigned(ADDR_WIDTH)
