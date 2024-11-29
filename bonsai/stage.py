@@ -22,13 +22,15 @@ class IfStage(wiring.Component):
     def elaborate(self, platform):
         m = Module()
 
-        # 型定義得るために追加
+        # 型定義得るために一時変数追加
         input: pipeline.IfReg = self.input
         output: pipeline.IfIsReg = self.output
         side: pipeline.SideCtrl = self.side
 
-        # Debug sequence counter
+        # Debug cyc/sequence counter
         debug = Signal(pipeline.StageCtrlDebug)
+
+        # デバッグ記録するcycleは、global cycle counterを使用
         m.d.sync += debug.cyc.eq(side.cyc)
 
         with m.If(side.clr):
@@ -36,8 +38,9 @@ class IfStage(wiring.Component):
             output.flush(module=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
+                # IF stageではPC決定のみ。Is/If regの値を下に次サイクルでIs stageが読み出し
                 output.push(module=m, addr=input.pc, debug=debug, domain="sync")
-                # fetch sequence number更新
+                # デバッグ記録用のfetch sequence number更新
                 m.d.sync += debug.seqno.eq(debug.seqno + 1)
             with m.Else():
                 output.stall(module=m, domain="sync")
@@ -61,7 +64,7 @@ class IsStage(wiring.Component):
     def elaborate(self, platform):
         m = Module()
 
-        # 型定義得るために追加
+        # 型定義得るために一時変数追加
         input: pipeline.IfIsReg = self.input
         output: pipeline.IsIdReg = self.output
         side: pipeline.SideCtrl = self.side
@@ -118,7 +121,7 @@ class IdStage(wiring.Component):
     def elaborate(self, platform):
         m = Module()
 
-        # 型定義得るために追加
+        # 型定義得るために一時変数追加
         input: pipeline.IsIdReg = self.input
         output: pipeline.IdExReg = self.output
         side: pipeline.SideCtrl = self.side
