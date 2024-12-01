@@ -28,7 +28,7 @@ class IfStage(wiring.Component):
         side: pipeline.SideCtrl = self.side
 
         # Debug cyc/sequence counter
-        debug = Signal(pipeline.StageCtrlDebug)
+        debug = Signal(pipeline.FetchDebugInfo)
 
         # デバッグ記録するcycleは、global cycle counterを使用
         m.d.sync += debug.cyc.eq(side.cyc)

@@ -10,7 +10,7 @@ import config
 # Control Signals
 
 
-class StageCtrlDebug(data.Struct):
+class FetchDebugInfo(data.Struct):
     """
     Debug information during stage control
     """
@@ -29,7 +29,7 @@ class StageCtrl(data.Struct):
     # Enable the stage (for stall)
     en: unsigned(1)
     # Debug information
-    debug: StageCtrlDebug
+    debug: FetchDebugInfo
 
 
 class SideCtrl(data.Struct):
@@ -103,7 +103,7 @@ class IfIsReg(data.Struct):
         m: Module,
         domain: str,
         addr: config.ADDR_SHAPE,
-        debug: StageCtrlDebug,
+        debug: FetchDebugInfo,
     ):
         """
         Push the instruction fetch address
@@ -167,7 +167,7 @@ class IsIdReg(data.Struct):
         domain: str,
         addr: config.ADDR_SHAPE,
         inst: config.INST_SHAPE,
-        debug: StageCtrlDebug,
+        debug: FetchDebugInfo,
     ):
         """
         Push the instruction fetch address
@@ -310,11 +310,76 @@ class IdExReg(data.Struct):
                     ),
                 ]
 
-        # operand初期値設定 (後から追加した場合、後の内容が優先される)
-        self.operand.clear(m=m, domain=push_domain)
-        self.br.clear(m=m, domain=push_domain)
+        # inst formatごとにOperand Parse
+        with m.Switch(fmt):
+            # | 31  25 | 24  20 | 19  15 | 14  12 | 11  7 | 6    0 |
+            # | funct7 | rs2    | rs1    | funct3 | rd    | opcode |
+            with m.Case(InstFormat.R):
+                self.operand.update(
+                    m=m,
+                    domain=push_domain,
+                    funct3=inst[14:12],
+                    funct7=inst[31:25],
+                    rs1=inst[19:15],
+                    rs2=inst[24:20],
+                    rd=inst[11:7],
+                )
+            # | 31     20 | 19  15 | 14  12 | 11  7 | 6    0 |
+            # | imm[11:0] | rs1    | funct3 | rd    | opcode |
+            with m.Case(InstFormat.I):
+                self.operand.update(
+                    m=m,
+                    domain=push_domain,
+                    funct3=inst[14:12],
+                    imm=inst[31:20],
+                    rs1=inst[19:15],
+                    rd=inst[11:7],
+                )
+            # | 31     25 | 24  20 | 19  15 | 14  12 | 11     7 | 6    0 |
+            # | imm[11:5] | rs2    | rs1    | funct3 | imm[4:0] | opcode |
+            with m.Case(InstFormat.S):
+                self.operand.update(
+                    m=m,
+                    domain=push_domain,
+                    funct3=inst[14:12],
+                    imm=Cat(inst[31:25], inst[11:7]),
+                    rs1=inst[19:15],
+                    rs2=inst[24:20],
+                )
+            # | 31        25 | 24  20 | 19  15 | 14  12 | 11        7 | 6    0 |
+            # | imm[12|10:5] | rs2    | rs1    | funct3 | imm[4:1|11] | opcode |
+            with m.Case(InstFormat.B):
+                self.operand.update(
+                    m=m,
+                    domain=push_domain,
+                    funct3=inst[14:12],
+                    imm=Cat(inst[31], inst[7], inst[30:25], inst[11:8], 0),
+                    rs1=inst[19:15],
+                    rs2=inst[24:20],
+                )
+            # | 31     12  | 11  7 | 6    0 |
+            # | imm[31:12] | rd    | opcode |
+            with m.Case(InstFormat.U):
+                self.operand.update(
+                    m=m,
+                    domain=push_domain,
+                    imm=inst[31:12],
+                    rd=inst[11:7],
+                )
+            # | 31                 12 | 11  7 | 6    0 |
+            # | imm[20|10:1|11|19:12] | rd    | opcode |
+            with m.Case(InstFormat.J):
+                self.operand.update(
+                    m=m,
+                    domain=push_domain,
+                    imm=Cat(inst[31], inst[19:12], inst[20], inst[30:21], 0),
+                    rd=inst[11:7],
+                )
+            
 
-        # TODO: formatごとに値を設定
+        # EX stage実行時点でjump要否がIR/EX regにあれば、IFのflushで捨てるサイクルを削減できる
+        self.br.clear(m=m, domain=push_domain)
+        # TODO: branch/jump target addressの計算, branch/jump要否の決定
 
     def push(
         self,
@@ -322,7 +387,7 @@ class IdExReg(data.Struct):
         domain: str,
         addr: config.ADDR_SHAPE,
         inst: config.INST_SHAPE,
-        debug: StageCtrlDebug,
+        debug: FetchDebugInfo,
     ):
         """
         Push the instruction decode result

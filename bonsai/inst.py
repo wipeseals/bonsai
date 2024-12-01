@@ -1,10 +1,11 @@
 import stat
 from typing import Callable, Optional
-from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
+from amaranth import Assert, Cat, Format, Module, Mux, Print, Signal, unsigned
 from amaranth.lib import data, wiring, enum
 
 from pydantic import BaseModel
 
+from regfile import RegFile
 import config
 
 
@@ -57,10 +58,20 @@ class Operand(data.Struct):
     Instruction Operand
     """
 
+    # funct2 enable
+    funct2_en: unsigned(1)
+    # funct2
+    funct2: unsigned(2)
+    # funct3 enable
+    funct3_en: unsigned(1)
     # funct3
     funct3: unsigned(3)
+    # funct5 enable (for atomic)
+    funct5_en: unsigned(1)
     # funct5 (for atomic)
     funct5: unsigned(5)
+    # funct7 enable
+    funct7_en: unsigned(1)
     # funct7
     funct7: unsigned(7)
 
@@ -77,6 +88,13 @@ class Operand(data.Struct):
     rs2_index: config.REGFILE_INDEX_SHAPE
     # Source Register 2
     rs2: config.REG_SHAPE
+
+    # Source Register 3 Enable
+    rs3_en: unsigned(1)
+    # Source Register 3 index
+    rs3_index: config.REGFILE_INDEX_SHAPE
+    # Source Register 3
+    rs3: config.REG_SHAPE
 
     # Destination Register Enable
     rd_en: unsigned(1)
@@ -95,8 +113,13 @@ class Operand(data.Struct):
         Clear Operand
         """
         m.d[domain] += [
+            self.funct2_en.eq(0),
+            self.funct2.eq(0),
+            self.funct3_en.eq(0),
             self.funct3.eq(0),
+            self.funct5_en.eq(0),
             self.funct5.eq(0),
+            self.funct7_en.eq(0),
             self.funct7.eq(0),
             self.rs1_en.eq(0),
             self.rs1_index.eq(0),
@@ -104,9 +127,105 @@ class Operand(data.Struct):
             self.rs2_en.eq(0),
             self.rs2_index.eq(0),
             self.rs2.eq(0),
+            self.rs3_en.eq(0),
+            self.rs3_index.eq(0),
+            self.rs3.eq(0),
             self.rd_en.eq(0),
             self.rd_index.eq(0),
             self.imm_en.eq(0),
             self.imm.eq(0),
             self.imm_sext.eq(0),
         ]
+
+    def update(
+        self,
+        m: Module,
+        regfile: RegFile,
+        domain: str,
+        funct2: Optional[unsigned(2)] = None,
+        funct3: Optional[unsigned(3)] = None,
+        funct5: Optional[unsigned(5)] = None,
+        funct7: Optional[unsigned(7)] = None,
+        rs1_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
+        rs2_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
+        rs3_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
+        rd_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
+        # for WB/EX forwarding
+        fwd_rd_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
+        fwd_rd: Optional[config.REG_SHAPE] = None,
+        imm: Optional[config.REG_SHAPE] = None,
+    ):
+        """
+        Update Parsed Operand
+        """
+
+        # 事前に値クリアのアサインをセットして、値がある場合のみアサインする
+        self.clear(m=m, domain=domain)
+
+        # 値がある場合、値とenableをセット
+        if funct2 is not None:
+            m.d[domain] += [
+                self.funct2_en.eq(1),
+                self.funct2.eq(funct2),
+            ]
+        if funct3 is not None:
+            m.d[domain] += [
+                self.funct3_en.eq(1),
+                self.funct3.eq(funct3),
+            ]
+        if funct5 is not None:
+            m.d[domain] += [
+                self.funct5_en.eq(1),
+                self.funct5.eq(funct5),
+            ]
+        if funct7 is not None:
+            m.d[domain] += [
+                self.funct7_en.eq(1),
+                self.funct7.eq(funct7),
+            ]
+
+        if rs1_index is not None:
+            m.d[domain] += [
+                self.rs1_en.eq(1),
+                self.rs1_index.eq(rs1_index),
+            ]
+            # Register Forwarding
+            if fwd_rd_index is not None:
+                assert fwd_rd is not None, "fwd_rd is required"
+                self.rs1.eq(
+                    Mux(fwd_rd_index == rs1_index, fwd_rd, regfile.get_gpr(rs1_index))
+                )
+        if rs2_index is not None:
+            m.d[domain] += [
+                self.rs2_en.eq(1),
+                self.rs2_index.eq(rs2_index),
+            ]
+            # Register Forwarding
+            if fwd_rd_index is not None:
+                assert fwd_rd is not None, "fwd_rd is required"
+                self.rs2.eq(
+                    Mux(fwd_rd_index == rs2_index, fwd_rd, regfile.get_gpr(rs2_index))
+                )
+        if rs3_index is not None:
+            m.d[domain] += [
+                self.rs3_en.eq(1),
+                self.rs3_index.eq(rs3_index),
+            ]
+            # Register Forwarding
+            if fwd_rd_index is not None:
+                assert fwd_rd is not None, "fwd_rd is required"
+                self.rs3.eq(
+                    Mux(fwd_rd_index == rs3_index, fwd_rd, regfile.get_gpr(rs3_index))
+                )
+        if rd_index is not None:
+            m.d[domain] += [
+                self.rd_en.eq(1),
+                self.rd_index.eq(rd_index),
+            ]
+
+        if imm is not None:
+            m.d[domain] += [
+                self.imm_en.eq(1),
+                self.imm.eq(imm),
+                self.imm_sext.eq(imm.as_signed()),
+            ]
