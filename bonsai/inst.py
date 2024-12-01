@@ -140,8 +140,8 @@ class Operand(data.Struct):
     def update(
         self,
         m: Module,
-        regfile: RegFile,
         domain: str,
+        regfile: RegFile,
         funct2: Optional[unsigned(2)] = None,
         funct3: Optional[unsigned(3)] = None,
         funct5: Optional[unsigned(5)] = None,
@@ -150,10 +150,10 @@ class Operand(data.Struct):
         rs2_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
         rs3_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
         rd_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
+        imm: Optional[config.REG_SHAPE] = None,
         # for WB/EX forwarding
         fwd_rd_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
         fwd_rd: Optional[config.REG_SHAPE] = None,
-        imm: Optional[config.REG_SHAPE] = None,
     ):
         """
         Update Parsed Operand
@@ -227,5 +227,6 @@ class Operand(data.Struct):
             m.d[domain] += [
                 self.imm_en.eq(1),
                 self.imm.eq(imm),
+                # TODO: IMMのビット幅と符号拡張が正しくないように思えるので、修正が必要
                 self.imm_sext.eq(imm.as_signed()),
             ]
