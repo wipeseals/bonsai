@@ -128,17 +128,18 @@ class IdStage(wiring.Component):
         wb: pipeline.WriteBackCtrl = self.wb
 
         # inst分解: 共通部分
-        m.d.comb += [
-            output.addr.eq(input.addr),
-            output.inst.eq(input.inst),
-            output.opcode.eq(input.inst[6:0]),
-        ]
-
         with m.If(side.clr):
             output.flush(m=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):
-                pass  #: TODO
+                # inst分解: 共通部分
+                output.push(
+                    m=m,
+                    domain="sync",
+                    addr=input.addr,
+                    inst=input.inst,
+                    debug=input.ctrl.debug,
+                )
             with m.Else():
                 pass  #: TODO
 
