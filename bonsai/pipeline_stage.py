@@ -15,7 +15,7 @@ class IfStage(wiring.Component):
 
     input: In(pipeline_reg.IfReg)
     output: Out(pipeline_reg.IfIsReg)
-    side: In(pipeline_reg.SideCtrl)
+    side: In(pipeline_reg.FlushCtrl)
 
     def elaborate(self, platform):
         m = Module()
@@ -23,19 +23,19 @@ class IfStage(wiring.Component):
         # 型定義得るために一時変数追加
         input: pipeline_reg.IfReg = self.input
         output: pipeline_reg.IfIsReg = self.output
-        side: pipeline_reg.SideCtrl = self.side
+        side: pipeline_reg.FlushCtrl = self.side
 
         # Debug cyc/sequence counter
-        debug = Signal(pipeline_reg.FetchDebugInfo)
+        debug = Signal(pipeline_reg.FetchInfo)
 
         # デバッグ記録するcycleは、global cycle counterを使用
         m.d.sync += debug.cyc.eq(side.cyc)
 
-        with m.If(side.clr):
+        with m.If(side.en):
             # stall中にflushがかかった場合は、flushを優先する
             output.flush(m=m, domain="sync")
         with m.Else():
-            with m.If(input.ctrl.en):
+            with m.If(input.stall.en):
                 # IF stageではPC決定のみ。Is/If regの値を下に次サイクルでIs stageが読み出し
                 output.push(m=m, addr=input.pc, debug=debug, domain="sync")
                 # デバッグ記録用のfetch sequence number更新
@@ -53,7 +53,7 @@ class IsStage(wiring.Component):
 
     input: In(pipeline_reg.IfIsReg)
     output: Out(pipeline_reg.IsIdReg)
-    side: In(pipeline_reg.SideCtrl)
+    side: In(pipeline_reg.FlushCtrl)
 
     def __init__(self, init_data: Any = []):
         self._init_data = init_data
@@ -65,7 +65,7 @@ class IsStage(wiring.Component):
         # 型定義得るために一時変数追加
         input: pipeline_reg.IfIsReg = self.input
         output: pipeline_reg.IsIdReg = self.output
-        side: pipeline_reg.SideCtrl = self.side
+        side: pipeline_reg.FlushCtrl = self.side
 
         # L1 Cache Body
         m.submodules.mem = mem = memory.Memory(
@@ -82,7 +82,7 @@ class IsStage(wiring.Component):
             rd_port.addr.eq(input.addr.shift_right(config.INST_ADDR_SHIFT)),
         ]
 
-        with m.If(side.clr):
+        with m.If(side.en):
             # stall中にflushがかかった場合は、flushを優先する
             output.flush(m=m, domain="sync")
         with m.Else():
@@ -113,7 +113,7 @@ class IdStage(wiring.Component):
 
     input: In(pipeline_reg.IsIdReg)
     output: Out(pipeline_reg.IdExReg)
-    side: In(pipeline_reg.SideCtrl)
+    side: In(pipeline_reg.FlushCtrl)
     wb: In(pipeline_reg.WriteBackCtrl)
 
     def elaborate(self, platform):
@@ -122,11 +122,11 @@ class IdStage(wiring.Component):
         # 型定義得るために一時変数追加
         input: pipeline_reg.IsIdReg = self.input
         output: pipeline_reg.IdExReg = self.output
-        side: pipeline_reg.SideCtrl = self.side
+        side: pipeline_reg.FlushCtrl = self.side
         wb: pipeline_reg.WriteBackCtrl = self.wb
 
         # inst分解: 共通部分
-        with m.If(side.clr):
+        with m.If(side.en):
             output.flush(m=m, domain="sync")
         with m.Else():
             with m.If(input.ctrl.en):

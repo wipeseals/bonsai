@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from amaranth import Module, Mux, unsigned
 from amaranth.lib import data, enum
 
@@ -149,7 +149,9 @@ class Operand(data.Struct):
         rs3_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
         rd_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
         imm: Optional[config.REG_SHAPE] = None,
-        # for WB/EX forwarding
+        imm_sext: Optional[config.SREG_SHAPE_SIGNED] = None,
+        # for WB/EX forwarding (直後にあるものから順に記述)
+        fwd_rd_indexes: List[config.REGFILE_INDEX_SHAPE] = [],
         fwd_rd_index: Optional[config.REGFILE_INDEX_SHAPE] = None,
         fwd_rd: Optional[config.REG_SHAPE] = None,
     ):
@@ -222,9 +224,9 @@ class Operand(data.Struct):
             ]
 
         if imm is not None:
+            assert imm_sext is not None, "imm_sext is required"
             m.d[domain] += [
                 self.imm_en.eq(1),
                 self.imm.eq(imm),
-                # TODO: IMMのビット幅と符号拡張が正しくないように思えるので、修正が必要
-                self.imm_sext.eq(imm.as_signed()),
+                self.imm_sext.eq(imm_sext),
             ]

@@ -1,89 +1,67 @@
 from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
-from amaranth.lib import data
+from amaranth.lib import data, wiring, memory
+from amaranth.lib.wiring import In, Out
 
+from bonsai.pipeline_ctrl import BranchCtrl, FlushCtrl, IfData, StallCtrl
 from inst import InstFormat, Opcode, Operand
 import config
 
 
-################################################################
-# Control Signals
-
-
-class FetchDebugInfo(data.Struct):
+class IfReg(wiring.Component):
     """
-    Debug information during stage control
+    IF stage で使用するレジスタ
+    Fetch対象のProgram Counterを保持
     """
 
-    # fetch cycle number
-    cyc: config.REG_SHAPE
-    # fetch sequence number
-    seqno: config.REG_SHAPE
+    # Control in
+    stall_in: In(StallCtrl)
+    flush_in: In(FlushCtrl)
+    branch_in: In(BranchCtrl)
 
+    # result
+    data: Out(IfData)
 
-class StageCtrl(data.Struct):
-    """
-    Common control signals between stages
-    """
+    def __init__(self, init_pc: config.ADDR_SHAPE = 0x0, icache_init_data: list = []):
+        self._init_pc = init_pc
+        self._init_data = icache_init_data
+        super().__init__()
 
-    # Enable the stage (for stall)
-    en: unsigned(1)
-    # Debug information
-    debug: FetchDebugInfo
+    def elaborate(self, platform):
+        m = Module()
 
+        # L1 Cache Body
+        m.submodules.mem = mem = memory.Memory(
+            shape=config.INST_SHAPE, depth=config.L1_CACHE_DEPTH, init=self._init_data
+        )
+        wr_port = mem.write_port(domain="comb")
+        rd_port = mem.read_port(domain="comb")
 
-class SideCtrl(data.Struct):
-    """
-    Common control signals from outside the stage
-    """
+        # Flush優先
+        with m.If(self.flush_in.en):
+            self.data.clear(m=m, domain="comb", addr=self._init_pc, inst=0)
+        with m.Else():
+            # Stall中は停滞
+            with m.If(self.stall_in.en):
+                # stall中はPCを更新しない
+                pass
+            with m.Else():
+                # Branch/Jumpがあれば、そのアドレスを設定
+                with m.If(self.branch_in.en):
+                    m.d.comb += self.pc.eq(self.branch_in.next_pc)
+                with m.Else():
+                    # 通常はPCを更新
+                    m.d.comb += self.pc.eq(self.pc + config.INST_BYTES)
 
-    # clear output (for pipeline flush)
-    clr: unsigned(1)
-    # global cycle counter
-    cyc: config.REG_SHAPE
+                # TODO: 対象の命令がmemにない場合の対応
+                # 後段にデータを流せず、Fetch完了を待つ必要がある
 
+                # read addrにPCの下位2bitを落としたものを設定し、出力をそのまま流す
+                m.d.comb += [
+                    rd_port.addr.eq(self.pc >> config.INST_ADDR_SHIFT),
+                ]
+                self.data.push(m - m, domain="comb", addr=self.pc, inst=rd_port.data)
 
-class BranchCtrl(data.Struct):
-    """
-    Control signals to pass the PC from the ID or EX stage to the IF stage
-    """
-
-    # Branch enable
-    en: unsigned(1)
-    # Branch target address
-    addr: config.ADDR_SHAPE
-
-    def clear(self, m: Module, domain: str):
-        """
-        Clear the branch control
-        """
-        m.d[domain] += [self.en.eq(0), self.addr.eq(0)]
-
-
-class WriteBackCtrl(data.Struct):
-    """
-    Write Back to Instruction Decode Control
-    """
-
-    # write back enable
-    en: unsigned(1)
-    # write back register index
-    rd_index: config.REGFILE_INDEX_SHAPE
-
-
-################################################################
-# Pipeline Register
-
-
-class IfReg(data.Struct):
-    """
-    Instruction Fetch First Half Register
-    """
-
-    # Control signals
-    ctrl: StageCtrl
-
-    # Instruction address
-    pc: config.ADDR_SHAPE
+        return m
 
 
 class IfIsReg(data.Struct):
@@ -92,7 +70,7 @@ class IfIsReg(data.Struct):
     """
 
     # Control signals
-    ctrl: StageCtrl
+    ctrl: StallCtrl
 
     # Instruction Address
     addr: config.INST_SHAPE
@@ -102,7 +80,7 @@ class IfIsReg(data.Struct):
         m: Module,
         domain: str,
         addr: config.ADDR_SHAPE,
-        debug: FetchDebugInfo,
+        debug: FetchInfo,
     ):
         """
         Push the instruction fetch address
@@ -152,7 +130,7 @@ class IsIdReg(data.Struct):
     """
 
     # Control signals
-    ctrl: StageCtrl
+    ctrl: StallCtrl
 
     # Instruction Address
     addr: config.ADDR_SHAPE
@@ -166,7 +144,7 @@ class IsIdReg(data.Struct):
         domain: str,
         addr: config.ADDR_SHAPE,
         inst: config.INST_SHAPE,
-        debug: FetchDebugInfo,
+        debug: FetchInfo,
     ):
         """
         Push the instruction fetch address
@@ -220,7 +198,7 @@ class IdExReg(data.Struct):
 
     ###################################
     # control signals
-    ctrl: StageCtrl
+    ctrl: StallCtrl
 
     ###################################
     # previous stage data
@@ -385,7 +363,7 @@ class IdExReg(data.Struct):
         domain: str,
         addr: config.ADDR_SHAPE,
         inst: config.INST_SHAPE,
-        debug: FetchDebugInfo,
+        debug: FetchInfo,
     ):
         """
         Push the instruction decode result
@@ -458,7 +436,7 @@ class ExDfreg(data.Struct):
     """
 
     # Control signals
-    ctrl: StageCtrl
+    ctrl: StallCtrl
 
     # TODO:
 
@@ -469,7 +447,7 @@ class DfDsReg(data.Struct):
     """
 
     # Control signals
-    ctrl: StageCtrl
+    ctrl: StallCtrl
 
 
 class DsWbReg(data.Struct):
@@ -478,7 +456,7 @@ class DsWbReg(data.Struct):
     """
 
     # Control signals
-    ctrl: StageCtrl
+    ctrl: StallCtrl
 
     # Write back control (for ID)
     wb_ctrl: WriteBackCtrl
