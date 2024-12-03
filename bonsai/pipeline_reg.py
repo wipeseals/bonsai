@@ -45,11 +45,10 @@ class IfReg(wiring.Component):
                 # stall中はPCを更新しない
                 pass
             with m.Else():
-                # Branch/Jumpがあれば、そのアドレスを設定
+                # Branch/Jumpがあればそのアドレスを設定、なければ現在のPCをインクリメントして使用
                 with m.If(self.branch_in.en):
                     m.d.comb += self.pc.eq(self.branch_in.next_pc)
                 with m.Else():
-                    # 通常はPCを更新
                     m.d.comb += self.pc.eq(self.pc + config.INST_BYTES)
 
                 # TODO: 対象の命令がmemにない場合の対応
