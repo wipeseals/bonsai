@@ -1,7 +1,6 @@
-from operator import is_
 from amaranth import Const
 from bonsai import config
-from bonsai.stage import IsStage
+from bonsai.pipeline_stage import IsStage
 
 from tests.testutil import run_sim
 

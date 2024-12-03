@@ -1,6 +1,5 @@
-from typing import List
 from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
-from amaranth.lib import data, wiring
+from amaranth.lib import data
 
 from inst import InstFormat, Opcode, Operand
 import config
@@ -375,7 +374,6 @@ class IdExReg(data.Struct):
                     imm=Cat(inst[31], inst[19:12], inst[20], inst[30:21], 0),
                     rd=inst[11:7],
                 )
-            
 
         # EX stage実行時点でjump要否がIR/EX regにあれば、IFのflushで捨てるサイクルを削減できる
         self.br.clear(m=m, domain=push_domain)

@@ -1,11 +1,9 @@
-from ast import mod
 from typing import Any
-from amaranth import Const, Format, Module, Mux, Print, Shape, Signal, unsigned
-from amaranth.lib import wiring, enum, data, memory, stream
+from amaranth import Module, Signal
+from amaranth.lib import wiring, memory
 from amaranth.lib.wiring import In, Out
 
-from inst import InstFormat, Opcode
-import pipeline
+import pipeline_reg
 import config
 import util
 
@@ -15,20 +13,20 @@ class IfStage(wiring.Component):
     Instruction Fetch First Stage
     """
 
-    input: In(pipeline.IfReg)
-    output: Out(pipeline.IfIsReg)
-    side: In(pipeline.SideCtrl)
+    input: In(pipeline_reg.IfReg)
+    output: Out(pipeline_reg.IfIsReg)
+    side: In(pipeline_reg.SideCtrl)
 
     def elaborate(self, platform):
         m = Module()
 
         # 型定義得るために一時変数追加
-        input: pipeline.IfReg = self.input
-        output: pipeline.IfIsReg = self.output
-        side: pipeline.SideCtrl = self.side
+        input: pipeline_reg.IfReg = self.input
+        output: pipeline_reg.IfIsReg = self.output
+        side: pipeline_reg.SideCtrl = self.side
 
         # Debug cyc/sequence counter
-        debug = Signal(pipeline.FetchDebugInfo)
+        debug = Signal(pipeline_reg.FetchDebugInfo)
 
         # デバッグ記録するcycleは、global cycle counterを使用
         m.d.sync += debug.cyc.eq(side.cyc)
@@ -53,9 +51,9 @@ class IsStage(wiring.Component):
     Instruction Fetch Second Stage
     """
 
-    input: In(pipeline.IfIsReg)
-    output: Out(pipeline.IsIdReg)
-    side: In(pipeline.SideCtrl)
+    input: In(pipeline_reg.IfIsReg)
+    output: Out(pipeline_reg.IsIdReg)
+    side: In(pipeline_reg.SideCtrl)
 
     def __init__(self, init_data: Any = []):
         self._init_data = init_data
@@ -65,9 +63,9 @@ class IsStage(wiring.Component):
         m = Module()
 
         # 型定義得るために一時変数追加
-        input: pipeline.IfIsReg = self.input
-        output: pipeline.IsIdReg = self.output
-        side: pipeline.SideCtrl = self.side
+        input: pipeline_reg.IfIsReg = self.input
+        output: pipeline_reg.IsIdReg = self.output
+        side: pipeline_reg.SideCtrl = self.side
 
         # L1 Cache Body
         m.submodules.mem = mem = memory.Memory(
@@ -113,19 +111,19 @@ class IdStage(wiring.Component):
     Instruction Decode Stage
     """
 
-    input: In(pipeline.IsIdReg)
-    output: Out(pipeline.IdExReg)
-    side: In(pipeline.SideCtrl)
-    wb: In(pipeline.WriteBackCtrl)
+    input: In(pipeline_reg.IsIdReg)
+    output: Out(pipeline_reg.IdExReg)
+    side: In(pipeline_reg.SideCtrl)
+    wb: In(pipeline_reg.WriteBackCtrl)
 
     def elaborate(self, platform):
         m = Module()
 
         # 型定義得るために一時変数追加
-        input: pipeline.IsIdReg = self.input
-        output: pipeline.IdExReg = self.output
-        side: pipeline.SideCtrl = self.side
-        wb: pipeline.WriteBackCtrl = self.wb
+        input: pipeline_reg.IsIdReg = self.input
+        output: pipeline_reg.IdExReg = self.output
+        side: pipeline_reg.SideCtrl = self.side
+        wb: pipeline_reg.WriteBackCtrl = self.wb
 
         # inst分解: 共通部分
         with m.If(side.clr):

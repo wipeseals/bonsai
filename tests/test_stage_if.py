@@ -1,4 +1,4 @@
-from bonsai.stage import IfStage
+from bonsai.pipeline_stage import IfStage
 
 from tests.testutil import run_sim
 

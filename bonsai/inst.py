@@ -1,9 +1,7 @@
-import stat
-from typing import Callable, Optional
-from amaranth import Assert, Cat, Format, Module, Mux, Print, Signal, unsigned
-from amaranth.lib import data, wiring, enum
+from typing import Optional
+from amaranth import Module, Mux, unsigned
+from amaranth.lib import data, enum
 
-from pydantic import BaseModel
 
 from regfile import RegFile
 import config

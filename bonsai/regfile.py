@@ -1,6 +1,5 @@
-from typing import List
-from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
-from amaranth.lib import data, wiring
+from amaranth import Module, Signal
+from amaranth.lib import data
 import config
 
 
