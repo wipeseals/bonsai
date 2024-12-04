@@ -50,6 +50,8 @@ class InstFetchStage(wiring.Component):
         )
         rd_port = mem.read_port(domain="comb")
 
+        # TODO: kanata_log出力で前回のFetch完了を追加
+
         # Flush優先
         with m.If(self.flush_in.en):
             self.data_out.clear(m=m, domain="comb", init_pc=self._init_pc)
@@ -64,6 +66,8 @@ class InstFetchStage(wiring.Component):
                     m.d.comb += fetch_pc.eq(self.branch_in.next_pc)
                 with m.Else():
                     m.d.comb += fetch_pc.eq(next_pc)
+
+                # TODO: kanata_log出力で今回のFetchを追加
 
                 # TODO: 対象の命令がmemにない場合の対応
                 # 後段にデータを流せず、Fetch完了を待つ必要がある
