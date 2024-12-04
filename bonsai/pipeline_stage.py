@@ -1,150 +1,97 @@
-from typing import Any
-from amaranth import Module, Signal
-from amaranth.lib import wiring, memory
+from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
+from amaranth.lib import data, wiring, memory
 from amaranth.lib.wiring import In, Out
 
-import pipeline_reg
+from pipeline_ctrl import BranchCtrl, FlushCtrl, InstFetchData, StallCtrl
+from inst import InstFormat, Opcode, Operand
 import config
 import util
 
 
-class IfStage(wiring.Component):
+class InstFetchStage(wiring.Component):
     """
-    Instruction Fetch First Stage
-    """
+    Instruction Fetch Stage
 
-    input: In(pipeline_reg.IfReg)
-    output: Out(pipeline_reg.IfIsReg)
-    side: In(pipeline_reg.FlushCtrl)
-
-    def elaborate(self, platform):
-        m = Module()
-
-        # 型定義得るために一時変数追加
-        input: pipeline_reg.IfReg = self.input
-        output: pipeline_reg.IfIsReg = self.output
-        side: pipeline_reg.FlushCtrl = self.side
-
-        # Debug cyc/sequence counter
-        debug = Signal(pipeline_reg.FetchInfo)
-
-        # デバッグ記録するcycleは、global cycle counterを使用
-        m.d.sync += debug.cyc.eq(side.cyc)
-
-        with m.If(side.en):
-            # stall中にflushがかかった場合は、flushを優先する
-            output.flush(m=m, domain="sync")
-        with m.Else():
-            with m.If(input.stall.en):
-                # IF stageではPC決定のみ。Is/If regの値を下に次サイクルでIs stageが読み出し
-                output.push(m=m, addr=input.pc, debug=debug, domain="sync")
-                # デバッグ記録用のfetch sequence number更新
-                m.d.sync += debug.seqno.eq(debug.seqno + 1)
-            with m.Else():
-                output.stall(m=m, domain="sync")
-
-        return m
-
-
-class IsStage(wiring.Component):
-    """
-    Instruction Fetch Second Stage
+    責務
+    - PCを更新し、次の命令を取得する
+    - 分岐/ジャンプ命令があれば、次のPCを設定する
+    - Flush信号があれば、次の命令を捨てる
+    - Stall信号があれば、PCを更新しない
+    - PCの値が指しているアドレスの命令を取得する
+    - TODO: Instruction Cacheに当該データがない場合、Fetch完了を待ってから次のステージに進む
     """
 
-    input: In(pipeline_reg.IfIsReg)
-    output: Out(pipeline_reg.IsIdReg)
-    side: In(pipeline_reg.FlushCtrl)
+    # Control in
+    stall_in: In(StallCtrl)
+    flush_in: In(FlushCtrl)
+    branch_in: In(BranchCtrl)
 
-    def __init__(self, init_data: Any = []):
-        self._init_data = init_data
+    # result
+    data_out: Out(InstFetchData)
+
+    def __init__(self, init_pc: config.ADDR_SHAPE = 0x0, icache_init_data: list = []):
+        self._init_pc = init_pc
+        self._init_data = icache_init_data
         super().__init__()
 
     def elaborate(self, platform):
         m = Module()
 
-        # 型定義得るために一時変数追加
-        input: pipeline_reg.IfIsReg = self.input
-        output: pipeline_reg.IsIdReg = self.output
-        side: pipeline_reg.FlushCtrl = self.side
+        # Program Counter: ローカルで保持していた次回PC + 4の値. FF
+        next_pc = Signal(config.ADDR_SHAPE, reset=self._init_pc)
+        # Program Counter: 今回fetch予定のアドレス. comb
+        fetch_pc = Signal(config.ADDR_SHAPE, reset=self._init_pc)
+        # Fetch Sequence Counter: 保持するために出力できたときに同期更新
+        uniq_id = Signal(config.REG_SHAPE, reset=0)
 
-        # L1 Cache Body
+        # Instruction Memory TODO: L1 Cacheに変更
         m.submodules.mem = mem = memory.Memory(
             shape=config.INST_SHAPE, depth=config.L1_CACHE_DEPTH, init=self._init_data
         )
-
-        # TODO: 外部ポートを追加し、キャッシュできるようにする
-        # wr_port = mem.write_port()
-
-        # Pipeline Register間にFF挟む必要ないので、直接接続かつ非同期で構成
         rd_port = mem.read_port(domain="comb")
-        m.d.comb += [
-            # memはINST_SHAPEの配列で確保してあるので、下位ビットを落とす
-            rd_port.addr.eq(input.addr.shift_right(config.INST_ADDR_SHIFT)),
-        ]
 
-        with m.If(side.en):
-            # stall中にflushがかかった場合は、flushを優先する
-            output.flush(m=m, domain="sync")
+        # Flush優先
+        with m.If(self.flush_in.en):
+            self.data_out.clear(m=m, domain="comb", init_pc=self._init_pc)
         with m.Else():
-            with m.If(input.ctrl.en):
-                # TODO: CacheMiss時の処理を追加
+            # Stall中は停滞
+            with m.If(self.stall_in.en):
+                # stall中はPCを更新しない
+                pass
+            with m.Else():
+                # Branch/Jumpがあればそのアドレスを設定、なければ前回更新したPCを設定
+                with m.If(self.branch_in.en):
+                    m.d.comb += fetch_pc.eq(self.branch_in.next_pc)
+                with m.Else():
+                    m.d.comb += fetch_pc.eq(next_pc)
 
-                # メモリから出力されている命令を次のステージに渡す
-                output.push(
-                    m=m,
-                    domain="sync",
-                    addr=input.addr,
+                # TODO: 対象の命令がmemにない場合の対応
+                # 後段にデータを流せず、Fetch完了を待つ必要がある
+
+                # read addrにPCの下位2bitを落としたものを設定し、出力をそのまま流す
+                m.d.comb += [
+                    rd_port.addr.eq(fetch_pc >> config.INST_ADDR_SHIFT),
+                ]
+                self.data_out.update(
+                    m,
+                    "comb",
+                    pc=fetch_pc,
                     inst=rd_port.data,
-                    debug=input.ctrl.debug,
+                    uniq_id=uniq_id,
                 )
-            with m.Else():
-                output.stall(
-                    m=m,
-                    domain="sync",
-                )
-
-        return m
-
-
-class IdStage(wiring.Component):
-    """
-    Instruction Decode Stage
-    """
-
-    input: In(pipeline_reg.IsIdReg)
-    output: Out(pipeline_reg.IdExReg)
-    side: In(pipeline_reg.FlushCtrl)
-    wb: In(pipeline_reg.WriteBackCtrl)
-
-    def elaborate(self, platform):
-        m = Module()
-
-        # 型定義得るために一時変数追加
-        input: pipeline_reg.IsIdReg = self.input
-        output: pipeline_reg.IdExReg = self.output
-        side: pipeline_reg.FlushCtrl = self.side
-        wb: pipeline_reg.WriteBackCtrl = self.wb
-
-        # inst分解: 共通部分
-        with m.If(side.en):
-            output.flush(m=m, domain="sync")
-        with m.Else():
-            with m.If(input.ctrl.en):
-                # inst分解: 共通部分
-                output.push(
-                    m=m,
-                    domain="sync",
-                    addr=input.addr,
-                    inst=input.inst,
-                    debug=input.ctrl.debug,
-                )
-            with m.Else():
-                pass  #: TODO
+                # next_pc, uniq_idを同期更新
+                m.d.sync += [
+                    # TODO: 分岐予測する場合Fetch予定地変更
+                    next_pc.eq(fetch_pc + config.INST_BYTES),
+                    uniq_id.eq(uniq_id + 1),
+                ]
 
         return m
 
 
 if __name__ == "__main__":
-    stages = [IfStage(), IsStage()]
+    stages = [
+        InstFetchStage(),
+    ]
     for stage in stages:
         util.export_verilog_file(stage, f"{stage.__class__.__name__}")

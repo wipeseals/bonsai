@@ -4,7 +4,7 @@ from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
 from amaranth.lib import data
 from amaranth.lib.wiring import In, Out
 
-from bonsai.regfile import RegData
+from regfile import RegData
 from inst import InstFormat, Opcode, Operand
 import config
 
@@ -63,7 +63,7 @@ class BranchCtrl(data.Struct):
         self.update(m, domain, None)
 
 
-class WriteBackCtrl(data.Struct):
+class RegWrCtrl(data.Struct):
     """
     次サイクルで指定されたレジスタに書き込む制御信号
     """
@@ -104,22 +104,51 @@ class RegFwdCtrl(data.Struct):
         self.reg_data.clear(m, domain)
 
 
-class IfData(data.Struct):
+class StageCtrl(data.Struct):
+    """
+    ステージ - ステージ間の制御信号
+    """
+
+    en: unsigned(1)
+    uniq_id: config.REG_SHAPE
+
+    def update(
+        self, m: Module, domain: str, en: unsigned(1), uniq_id: config.REG_SHAPE
+    ):
+        m.d[domain] += [
+            self.en.eq(en),
+            self.uniq_id.eq(uniq_id),
+        ]
+
+    def enable(self, m: Module, domain: str, uniq_id: config.REG_SHAPE):
+        self.update(m, domain, en=1, uniq_id=uniq_id)
+
+    def disable(self, m: Module, domain: str):
+        self.update(m, domain, en=0, uniq_id=0)
+
+
+class InstFetchData(data.Struct):
     """
     IF stageでFetchしたデータとそのアドレスを保持する
     """
 
-    # enable
-    en: unsigned(1)
+    # ctrl
+    ctrl: StageCtrl
     # Program Counter
-    pc: Out(config.ADDR_SHAPE)
+    pc: config.ADDR_SHAPE
     # Instruction data
-    inst: Out(config.INST_SHAPE)
+    inst: config.INST_SHAPE
 
     def clear(self, m: Module, domain: str, init_pc: config.ADDR_SHAPE):
-        m.d[domain] += [self.en.eq(0), self.pc.eq(init_pc), self.inst.eq(0)]
+        self.ctrl.disable(m, domain)
 
     def update(
-        self, m: Module, domain: str, pc: config.ADDR_SHAPE, inst: config.INST_SHAPE
+        self,
+        m: Module,
+        domain: str,
+        pc: config.ADDR_SHAPE,
+        inst: config.INST_SHAPE,
+        uniq_id: config.REG_SHAPE,
     ):
-        m.d[domain] += [self.en.eq(1), self.pc.eq(pc), self.inst.eq(inst)]
+        self.ctrl.enable(m, domain, uniq_id=uniq_id)
+        m.d[domain] += [self.pc.eq(pc), self.inst.eq(inst)]
