@@ -1,11 +1,8 @@
-from typing import Optional, override
-from abc import ABC, ABCMeta, abstractmethod
-from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
+from typing import Optional
+from amaranth import Module, unsigned
 from amaranth.lib import data
-from amaranth.lib.wiring import In, Out
 
 from regfile import RegData
-from inst import InstFormat, Opcode, Operand
 import config
 
 

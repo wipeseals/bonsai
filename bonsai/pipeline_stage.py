@@ -1,9 +1,8 @@
-from amaranth import Assert, Cat, Format, Module, Print, Signal, unsigned
-from amaranth.lib import data, wiring, memory
+from amaranth import Module, Signal
+from amaranth.lib import wiring, memory
 from amaranth.lib.wiring import In, Out
 
 from pipeline_ctrl import BranchCtrl, FlushCtrl, InstFetchData, StallCtrl
-from inst import InstFormat, Opcode, Operand
 import config
 import util
 
