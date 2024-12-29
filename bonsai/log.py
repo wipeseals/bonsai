@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Any, List, Optional
+from typing import Optional
 from amaranth import Format, Print
 
 
@@ -10,63 +10,59 @@ class Kanata:
     """
 
     @staticmethod
-    def header(version: int = 4) -> List[Any]:
+    def header(version: int = 4) -> Print:
         """
         Kanata Log header
+        e.g. Kanata	0004
 
         Args:
             version: ログファイルのバージョン。省略時は4
         """
-        return [
-            Print(Format("Kanata\t%d", version)),
-        ]
+        return Print(Format("Kanata\t{:04d}", version))
 
     @staticmethod
-    def start_cyc(cycle: int) -> List[Any]:
+    def start_cyc(cycle: int) -> Print:
         """
         シミュレーション開始サイクル
+        e.g. C=	216
 
         Args:
             cycle: 開始サイクル数
         """
-        return [
-            Print(Format("C=\t%d", cycle)),
-        ]
+        return Print(Format("C=\t{:d}", cycle))
 
     @staticmethod
-    def offset_cyc(cycle: int) -> List[Any]:
+    def elapsed_cyc(cycle: int) -> Print:
         """
         前回ログ出力時からの経過サイクル
+        e.g. C	216
 
         Args:
             cycle: 経過サイクル数
         """
-        return [
-            Print(Format("C\t%d", cycle)),
-        ]
+        return (Print(Format("C\t{:d}", cycle)),)
 
     @staticmethod
-    def cmd_start(
+    def start_cmd(
         uniq_id: int, inst_id: Optional[int] = None, thread_id: int = 0
-    ) -> List[Any]:
+    ) -> Print:
         """
         コマンド開始
+        e.g. I	0	0	0
 
         Args:
             uniq_id: ログファイル内の一意なID
             inst_id: シミュレータ内で命令に割り振られたID。省略時はuniq_idと同じになる
             thread_id: スレッドID。省略時は0になる
         """
-        return [
-            Print(
-                Format(
-                    "I\t%d\t%d\t%d",
-                    uniq_id,
-                    inst_id if inst_id is not None else uniq_id,
-                    thread_id,
-                )
-            ),
-        ]
+        return Print(
+            Format(
+                "I\t{:d}\t{:d}\t{:d}",
+                uniq_id,
+                inst_id if inst_id is not None else uniq_id,
+                thread_id,
+            )
+        )
 
     class LabelType(IntEnum):
         """
@@ -77,67 +73,64 @@ class Kanata:
         HOVER = 1
 
     @staticmethod
-    def cmd_label(uniq_id: int, label_type: LabelType, label: str) -> List[Any]:
+    def label_cmd(uniq_id: int, label_type: LabelType, label_data: str) -> Print:
         """
         コマンドラベル
+        e.g. L	0	0	12000d918 r4 = iALU(r3, r2)
 
         Args:
             uniq_id: ログファイル内の一意なID
+            label_type: ラベルの表示設定
             label: ラベル名
-            thread_id: スレッドID。省略時は0になる
         """
-        return [
-            Print(
-                Format(
-                    "L\t%d\t%d\t%s",
-                    uniq_id,
-                    label_type.value,
-                    label,
-                )
-            ),
-        ]
+        return Print(
+            Format(
+                "L\t{:d}\t{:d}\t{:s}",
+                uniq_id,
+                label_type.value,
+                label_data,
+            )
+        )
 
     @staticmethod
-    def stage_start(uniq_id: int, lane_id: int, stage_name: str) -> List[Any]:
+    def start_stage(uniq_id: int, lane_id: int, stage: str) -> Print:
         """
         ステージ開始
+        e.g. S	0	0	F
 
         Args:
             uniq_id: ログファイル内の一意なID
             lane_id: レーンID
             stage_name: ステージ名
         """
-        return [
-            Print(
-                Format(
-                    "S\t%d\t%d\t%s",
-                    uniq_id,
-                    lane_id,
-                    stage_name,
-                )
-            ),
-        ]
+        return Print(
+            Format(
+                "S\t{:d}\t{:d}\t{:s}",
+                uniq_id,
+                lane_id,
+                stage,
+            )
+        )
 
     @staticmethod
-    def stage_end(uniq_id: int, lane_id: int, stage_name: str) -> List[Any]:
+    def end_stage(uniq_id: int, lane_id: int, stage: str) -> Print:
         """
         ステージ終了
+        e.g. E	0	0	F
 
         Args:
             uniq_id: ログファイル内の一意なID
             lane_id: レーンID
             stage_name: ステージ名
         """
-        return [
-            Print(
-                Format(
-                    "E\t%d\t%d\t%s",
-                    uniq_id,
-                    lane_id,
-                    stage_name,
-                )
-            ),
-        ]
+        return Print(
+            Format(
+                "E\t{:d}\t{:d}\t{:s}",
+                uniq_id,
+                lane_id,
+                stage,
+            )
+        )
 
     class CmdEndType(IntEnum):
         """
@@ -148,27 +141,26 @@ class Kanata:
         FLUSH = 1
 
     @staticmethod
-    def cmd_end(uniq_id: int, retire_id: int, end_type: CmdEndType) -> List[Any]:
+    def cmd_end(uniq_id: int, retire_id: int, end_type: CmdEndType) -> Print:
         """
         コマンド終了
+        e.g. R	0	0	F
 
         Args:
             uniq_id: ログファイル内の一意なID
             retire_id: リタイアID
             end_opt: 終了オプション
         """
-        return [
-            Print(
-                Format(
-                    "R\t%d\t%d\t%d",
-                    uniq_id,
-                    retire_id,
-                    end_type.value,
-                )
-            ),
-        ]
+        return Print(
+            Format(
+                "R\t{:d}\t{:d}\t{:d}",
+                uniq_id,
+                retire_id,
+                end_type.value,
+            )
+        )
 
-    class DependsType(IntEnum):
+    class DependType(IntEnum):
         """
         依存関係の種類
         """
@@ -177,24 +169,21 @@ class Kanata:
         RESERVED = 1
 
     @staticmethod
-    def depends(
-        consumer_id: int, producer_id: int, depends_type: DependsType
-    ) -> List[Any]:
+    def depends(consumer_id: int, producer_id: int, depend_type: DependType) -> Print:
         """
         依存関係
+        e.g. D	0	0	0
 
         Args:
             consumer_id: 依存するID
             producer_id: 依存されるID
-            depends_type: 依存関係の種類
+            depend_type: 依存関係の種類
         """
-        return [
-            Print(
-                Format(
-                    "D\t%d\t%d\t%d",
-                    consumer_id,
-                    producer_id,
-                    depends_type.value,
-                )
-            ),
-        ]
+        return Print(
+            Format(
+                "D\t{:d}\t{:d}\t{:d}",
+                consumer_id,
+                producer_id,
+                depend_type.value,
+            )
+        )
