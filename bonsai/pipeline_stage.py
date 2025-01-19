@@ -1,4 +1,4 @@
-from amaranth import Format, Module, Signal
+from amaranth import Module, Signal
 from amaranth.lib import wiring, memory
 from amaranth.lib.wiring import In, Out
 
@@ -84,7 +84,7 @@ class InstFetchStage(wiring.Component):
                 # Cmd fetch開始をログ出力
                 m.d.sync += [
                     Kanata.start_cmd(uniq_id=uniq_id, inst_id=uniq_id, thread_id=0),
-                    Kanata.label_cmd(
+                    Kanata.label_cmd_if(
                         uniq_id=uniq_id,
                         label_type=Kanata.LabelType.ALWAYS,
                         pc=fetch_pc,
