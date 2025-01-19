@@ -1,7 +1,8 @@
-from amaranth import Module, Signal
+from amaranth import Format, Module, Signal
 from amaranth.lib import wiring, memory
 from amaranth.lib.wiring import In, Out
 
+from log import Kanata
 from pipeline_ctrl import BranchCtrl, FlushCtrl, InstFetchData, StallCtrl
 import config
 import util
@@ -43,41 +44,62 @@ class InstFetchStage(wiring.Component):
         # Fetch Sequence Counter: 保持するために出力できたときに同期更新
         uniq_id = Signal(config.REG_SHAPE, reset=0)
 
+        # Fetch Sequence Counter: 前回の値
+        prev_en = Signal(1, reset=0)
+        prev_uniq_id = Signal(config.REG_SHAPE, reset=0)
+        prev_inst = Signal(config.INST_SHAPE, reset=0)
+
         # Instruction Memory TODO: L1 Cacheに変更
         m.submodules.mem = mem = memory.Memory(
             shape=config.INST_SHAPE, depth=config.L1_CACHE_DEPTH, init=self._init_data
         )
         rd_port = mem.read_port(domain="comb")
 
-        # TODO: kanata_log出力で前回のFetch完了を追加
+        # 前回のFetch完了をログ出力
+        with m.If(prev_en):
+            m.d.sync += Kanata.end_stage(uniq_id=prev_uniq_id, lane_id=0, stage="IF")
 
         # Flush優先
         with m.If(self.flush_in.en):
-            self.data_out.clear(m=m, domain="comb", init_pc=self._init_pc)
+            # 出力せず
+            self.data_out.clear(m=m, domain="sync", init_pc=self._init_pc)
         with m.Else():
             # Stall中は停滞
             with m.If(self.stall_in.en):
-                # stall中はPCを更新しない
+                # stall中はPCを更新せず
+                self.data_out.clear(m=m, domain="sync", init_pc=self._init_pc)
                 pass
             with m.Else():
-                # Branch/Jumpがあればそのアドレスを設定、なければ前回更新したPCを設定
-                with m.If(self.branch_in.en):
-                    m.d.comb += fetch_pc.eq(self.branch_in.next_pc)
-                with m.Else():
-                    m.d.comb += fetch_pc.eq(next_pc)
-
-                # TODO: kanata_log出力で今回のFetchを追加
-
                 # TODO: 対象の命令がmemにない場合の対応
                 # 後段にデータを流せず、Fetch完了を待つ必要がある
 
+                # Fetch結果を出力できるケース
+
+                # Branch/Jumpがあればそのアドレスを設定、なければ前回更新したPCを設定
+                with m.If(self.branch_in.en):
+                    m.d.sync += fetch_pc.eq(self.branch_in.next_pc)
+                with m.Else():
+                    m.d.sync += fetch_pc.eq(next_pc)
+
+                # Cmd fetch開始をログ出力
+                m.d.sync += [
+                    Kanata.start_cmd(uniq_id=uniq_id, inst_id=uniq_id, thread_id=0),
+                    Kanata.label_cmd(
+                        uniq_id=uniq_id,
+                        label_type=Kanata.LabelType.ALWAYS,
+                        pc=fetch_pc,
+                        inst=prev_inst,
+                    ),
+                    Kanata.start_stage(uniq_id=uniq_id, lane_id=0, stage="IF"),
+                ]
+
                 # read addrにPCの下位2bitを落としたものを設定し、出力をそのまま流す
-                m.d.comb += [
+                m.d.sync += [
                     rd_port.addr.eq(fetch_pc >> config.INST_ADDR_SHIFT),
                 ]
                 self.data_out.update(
                     m,
-                    "comb",
+                    domain="sync",
                     pc=fetch_pc,
                     inst=rd_port.data,
                     uniq_id=uniq_id,
@@ -88,6 +110,13 @@ class InstFetchStage(wiring.Component):
                     next_pc.eq(fetch_pc + config.INST_BYTES),
                     uniq_id.eq(uniq_id + 1),
                 ]
+
+        # logで今回fetchしたコマンドの終了用に値を保持
+        m.d.sync += [
+            prev_en.eq(self.data_out.ctrl.en),
+            prev_inst.eq(rd_port.data),
+            prev_uniq_id.eq(uniq_id),
+        ]
 
         return m
 

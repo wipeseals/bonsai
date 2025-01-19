@@ -73,7 +73,7 @@ class Kanata:
         HOVER = 1
 
     @staticmethod
-    def label_cmd(uniq_id: int, label_type: LabelType, label_data: str) -> Print:
+    def label_cmd(uniq_id: int, label_type: LabelType, pc: int, inst: int) -> Print:
         """
         コマンドラベル
         e.g. L	0	0	12000d918 r4 = iALU(r3, r2)
@@ -81,14 +81,16 @@ class Kanata:
         Args:
             uniq_id: ログファイル内の一意なID
             label_type: ラベルの表示設定
-            label: ラベル名
+            pc: プログラムカウンタ
+            inst: 命令データ
         """
         return Print(
             Format(
-                "L\t{:d}\t{:d}\t{:s}",
+                "L\t{:d}\t{:d}\t{:08x} inst = {:08x}",  # TODO: instの表示形式を検討
                 uniq_id,
                 label_type.value,
-                label_data,
+                pc,
+                inst,
             )
         )
 
