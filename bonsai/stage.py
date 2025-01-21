@@ -4,7 +4,7 @@ from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
 from log import Kanata
-from pipeline_ctrl import (
+from bonsai.format import (
     InstFetchReqSignature,
     InstSelectReqSignature,
     StageCtrlReq,

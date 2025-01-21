@@ -1,4 +1,4 @@
-from bonsai.pipeline_stage import InstSelectStage
+from bonsai.stage import InstSelectStage
 
 from tests.testutil import run_sim
 import pytest
