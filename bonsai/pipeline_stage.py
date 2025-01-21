@@ -3,127 +3,81 @@ from amaranth.lib import wiring, memory
 from amaranth.lib.wiring import In, Out
 
 from log import Kanata
-from pipeline_ctrl import BranchCtrl, FlushCtrl, InstFetchData, StallCtrl
+from pipeline_ctrl import BranchReq, FlushReq, InstFetchData, InstSelectReq, StallReq
 import config
 import util
 
 
-class InstFetchStage(wiring.Component):
+class InstSelectStage(wiring.Component):
     """
-    Instruction Fetch Stage
-
-    責務
-    - PCを更新し、次の命令を取得する
-    - 分岐/ジャンプ命令があれば、次のPCを設定する
-    - Flush信号があれば、次の命令を捨てる
-    - Stall信号があれば、PCを更新しない
-    - PCの値が指しているアドレスの命令を取得する
-    - TODO: Instruction Cacheに当該データがない場合、Fetch完了を待ってから次のステージに進む
+    Instruction Select Stage
     """
 
-    # Control in
-    stall_in: In(StallCtrl)
-    flush_in: In(FlushCtrl)
-    branch_in: In(BranchCtrl)
+    # Instruction Select Request
+    req: In(InstSelectReq)
 
-    # result
-    data_out: Out(InstFetchData)
+    # Instruction Fetch Request
+    if_req: Out(InstFetchData)
 
-    def __init__(self, init_pc: config.ADDR_SHAPE = 0x0, icache_init_data: list = []):
-        self._init_pc = init_pc
-        self._init_data = icache_init_data
+    def __init__(self, initial_pc: int = 0):
+        self._pc = initial_pc
         super().__init__()
 
     def elaborate(self, platform):
         m = Module()
 
-        # Program Counter: ローカルで保持していた次回PC + 4の値. FF
-        next_pc = Signal(config.ADDR_SHAPE, reset=self._init_pc)
-        # Program Counter: 今回fetch予定のアドレス. comb
-        fetch_pc = Signal(config.ADDR_SHAPE, reset=self._init_pc)
-        # Fetch Sequence Counter: 保持するために出力できたときに同期更新
-        uniq_id = Signal(config.REG_SHAPE, reset=0)
-
-        # Fetch Sequence Counter: 前回の値
-        prev_en = Signal(1, reset=0)
-        prev_uniq_id = Signal(config.REG_SHAPE, reset=0)
-        prev_inst = Signal(config.INST_SHAPE, reset=0)
-
-        # Instruction Memory TODO: L1 Cacheに変更
-        m.submodules.mem = mem = memory.Memory(
-            shape=config.INST_SHAPE, depth=config.L1_CACHE_DEPTH, init=self._init_data
-        )
-        rd_port = mem.read_port(domain="comb")
-
-        # 前回のFetch完了をログ出力
-        with m.If(prev_en):
-            m.d.sync += Kanata.end_stage(uniq_id=prev_uniq_id, lane_id=0, stage="IF")
-
-        # Flush優先
-        with m.If(self.flush_in.en):
-            # 出力せず
-            self.data_out.clear(m=m, domain="sync", init_pc=self._init_pc)
-        with m.Else():
-            # Stall中は停滞
-            with m.If(self.stall_in.en):
-                # stall中はPCを更新せず
-                self.data_out.clear(m=m, domain="sync", init_pc=self._init_pc)
-                pass
-            with m.Else():
-                # TODO: 対象の命令がmemにない場合の対応
-                # 後段にデータを流せず、Fetch完了を待つ必要がある
-
-                # Fetch結果を出力できるケース
-
-                # Branch/Jumpがあればそのアドレスを設定、なければ前回更新したPCを設定
-                with m.If(self.branch_in.en):
-                    m.d.sync += fetch_pc.eq(self.branch_in.next_pc)
-                with m.Else():
-                    m.d.sync += fetch_pc.eq(next_pc)
-
-                # Cmd fetch開始をログ出力
-                m.d.sync += [
-                    Kanata.start_cmd(uniq_id=uniq_id, inst_id=uniq_id, thread_id=0),
-                    Kanata.label_cmd_if(
-                        uniq_id=uniq_id,
-                        label_type=Kanata.LabelType.ALWAYS,
-                        pc=fetch_pc,
-                        inst=prev_inst,
-                    ),
-                    Kanata.start_stage(uniq_id=uniq_id, lane_id=0, stage="IF"),
-                ]
-
-                # read addrにPCの下位2bitを落としたものを設定し、出力をそのまま流す
-                m.d.sync += [
-                    rd_port.addr.eq(fetch_pc >> config.INST_ADDR_SHIFT),
-                ]
-                self.data_out.update(
-                    m,
-                    domain="sync",
-                    pc=fetch_pc,
-                    inst=rd_port.data,
-                    uniq_id=uniq_id,
-                )
-                # next_pc, uniq_idを同期更新
-                m.d.sync += [
-                    # TODO: 分岐予測する場合Fetch予定地変更
-                    next_pc.eq(fetch_pc + config.INST_BYTES),
-                    uniq_id.eq(uniq_id + 1),
-                ]
-
-        # logで今回fetchしたコマンドの終了用に値を保持
-        m.d.sync += [
-            prev_en.eq(self.data_out.ctrl.en),
-            prev_inst.eq(rd_port.data),
-            prev_uniq_id.eq(uniq_id),
+        # for Output Signal
+        pc = Signal(config.PC_SHAPE, reset=self._pc)
+        uniq_id = Signal(config.UNIQ_ID_SHAPE, reset=0)
+        stall_req = Signal(StallReq, reset=1)
+        flush_req = Signal(FlushReq, reset=1)
+        m.d.comb += [
+            self.if_req.pc.eq(pc),
+            self.if_req.uniq_id.eq(uniq_id),
+            self.if_req.stall_req.eq(stall_req),
+            self.if_req.flush_req.eq(flush_req),
         ]
 
-        return m
+        with m.If(self.flush_req.en):
+            # Flush Request
+            m.d.sync += [
+                pc.eq(0),
+                uniq_id.eq(0),
+                stall_req.eq(1),
+                flush_req.eq(1),
+            ]
+        with m.Else():
+            with m.If(self.stall_req.en):
+                # Stall Request
+                m.d.sync += [
+                    pc.eq(0),
+                    uniq_id.eq(0),
+                    stall_req.eq(1),
+                    flush_req.eq(0),
+                ]
+            with m.Else():
+                # 分岐必要なら指定されたPCに移動。そうでなければ現在地をそのまま出力
+                with m.If(self.branch_req.en):
+                    # Branch Request
+                    m.d.sync += [
+                        pc.eq(self.branch_req.next_pc),
+                        uniq_id.eq(uniq_id + 1),
+                        stall_req.eq(0),
+                        flush_req.eq(0),
+                    ]
+                with m.Else():
+                    # Increment PC
+                    m.d.sync += [
+                        pc.eq(pc + 1),
+                        uniq_id.eq(uniq_id + 1),
+                        stall_req.eq(0),
+                        flush_req.eq(0),
+                    ]
 
 
 if __name__ == "__main__":
     stages = [
-        InstFetchStage(),
+        InstSelectStage(),
     ]
     for stage in stages:
         util.export_verilog_file(stage, f"{stage.__class__.__name__}")
