@@ -73,15 +73,20 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class StageCtrlReq(data.Struct):
+class StageCtrlReq(wiring.Signature):
     """
-    ステージ - ステージ間の制御信号
+    全体から個別Stageへの制御信号
     """
 
-    # Stall Request from previous stage
-    stall: unsigned(1)
-    # Flush Request from previous stage
-    flush: unsigned(1)
+    def __init__(self):
+        super().__init__(
+            {
+                # Stall Request from previous stage
+                "stall": In(unsigned(1)),
+                # Flush Request from previous stage
+                "flush": In(unsigned(1)),
+            }
+        )
 
 
 class InstSelectReqSignature(wiring.Signature):
@@ -94,8 +99,6 @@ class InstSelectReqSignature(wiring.Signature):
             {
                 # data enable
                 "en": In(unsigned(1)),
-                # stall/flush request from pipeline ctrl
-                "ctrl": In(StageCtrlReq),
                 # Branch request
                 "branch_req": In(BranchReq),
                 # num instruction bytes
@@ -115,8 +118,6 @@ class InstFetchReqSignature(wiring.Signature):
             {
                 # data enable
                 "en": In(unsigned(1)),
-                # stall/flush request from IS
-                "ctrl": In(StageCtrlReq),
                 # Target PC
                 "locate": In(InstLocate),
             }
@@ -133,8 +134,6 @@ class InstDecodeReqSignature(wiring.Signature):
             {
                 # data enable
                 "en": In(unsigned(1)),
-                # stall/flush request from IF
-                "ctrl": In(StageCtrlReq),
                 # Instruction
                 "inst": In(RawInst),
             }

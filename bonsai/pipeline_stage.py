@@ -6,6 +6,7 @@ from log import Kanata
 from pipeline_ctrl import (
     InstFetchReqSignature,
     InstSelectReqSignature,
+    StageCtrlReq,
 )
 import config
 import util
@@ -15,6 +16,9 @@ class InstSelectStage(wiring.Component):
     """
     Instruction (Address) Select Stage
     """
+
+    # Stage Control Request
+    ctrl_req: In(StageCtrlReq())
 
     # Instruction Select Request
     prev_req: In(InstSelectReqSignature())
@@ -52,8 +56,6 @@ class InstSelectStage(wiring.Component):
             uniq_id.eq(uniq_id),
             self.next_req.locate.uniq_id.eq(uniq_id),
             # pass request
-            self.next_req.ctrl.flush.eq(self.prev_req.ctrl.flush),
-            self.next_req.ctrl.stall.eq(self.prev_req.ctrl.stall),
             self.next_req.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
         ]
 
@@ -62,17 +64,19 @@ class InstSelectStage(wiring.Component):
             # No Request
             pass
         with m.Else():
-            with m.If(self.prev_req.ctrl.flush):
+            with m.If(self.ctrl_req.flush):
                 # Flush Request
                 pass
             with m.Else():
-                with m.If(self.prev_req.ctrl.stall):
+                with m.If(self.ctrl_req.stall):
                     # Stall Request
                     pass
                 with m.Else():
                     with m.If(self.prev_req.branch_req.en):
                         # Branch Request
                         m.d.sync += [
+                            # enable current cycle destination
+                            self.next_req.en.eq(1),
                             # set branch target pc
                             pc.eq(
                                 self.prev_req.branch_req.next_pc
@@ -84,6 +88,19 @@ class InstSelectStage(wiring.Component):
                             # increment uniq_id
                             uniq_id.eq(uniq_id + 1),
                             self.next_req.locate.uniq_id.eq(uniq_id),
+                        ]
+                        # log (cmd start, IS stage start)
+                        m.d.sync += [
+                            # log
+                            Kanata.start_cmd(uniq_id=uniq_id),
+                            Kanata.start_stage(
+                                uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                            ),
+                            Kanata.label_cmd_is(
+                                uniq_id=uniq_id,
+                                label_type=Kanata.LabelType.ALWAYS,
+                                pc=self.prev_req.branch_req.next_pc,
+                            ),
                         ]
                     with m.Else():
                         # Increment PC
