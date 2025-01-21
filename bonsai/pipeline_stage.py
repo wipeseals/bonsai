@@ -32,8 +32,8 @@ class InstSelectStage(wiring.Component):
         m = Module()
 
         # local signals
-        pc = Signal(config.ADDR_SHAPE, reset=self._initial_pc)
-        uniq_id = Signal(config.ADDR_SHAPE, reset=self._initial_uniq_id)
+        pc = Signal(config.ADDR_SHAPE, init=self._initial_pc)
+        uniq_id = Signal(config.ADDR_SHAPE, init=self._initial_uniq_id)
 
         # log (IS stage end)
         with m.If(self.next_req.en):
@@ -64,11 +64,7 @@ class InstSelectStage(wiring.Component):
         with m.Else():
             with m.If(self.prev_req.ctrl.flush):
                 # Flush Request
-                m.d.sync += [
-                    # reset pc
-                    pc.eq(self._initial_pc),
-                    self.next_req.locate.pc.eq(self._initial_pc),
-                ]
+                pass
             with m.Else():
                 with m.If(self.prev_req.ctrl.stall):
                     # Stall Request
