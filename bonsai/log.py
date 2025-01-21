@@ -73,7 +73,7 @@ class Kanata:
         HOVER = 1
 
     @staticmethod
-    def label_cmd_if(uniq_id: int, label_type: LabelType, pc: int, inst: int) -> Print:
+    def label_cmd_is(uniq_id: int, label_type: LabelType, pc: int) -> Print:
         """
         コマンドラベル
         e.g. L	0	0	12000d918 r4 = iALU(r3, r2)
@@ -82,14 +82,32 @@ class Kanata:
             uniq_id: ログファイル内の一意なID
             label_type: ラベルの表示設定
             pc: プログラムカウンタ
+        """
+        return Print(
+            Format(
+                "L\t{:d}\t{:d}\taddr = {:08x}",
+                uniq_id,
+                label_type.value,
+                pc,
+            )
+        )
+
+    @staticmethod
+    def label_cmd_if(uniq_id: int, label_type: LabelType, inst: int) -> Print:
+        """
+        コマンドラベル
+        e.g. L	0	0	12000d918 r4 = iALU(r3, r2)
+
+        Args:
+            uniq_id: ログファイル内の一意なID
+            label_type: ラベルの表示設定
             inst: 命令データ
         """
         return Print(
             Format(
-                "L\t{:d}\t{:d}\taddr = {:08x} inst = {:08x}",
+                "L\t{:d}\t{:d}\tinst = {:08x}",
                 uniq_id,
                 label_type.value,
-                pc,
                 inst,
             )
         )

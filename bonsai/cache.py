@@ -6,26 +6,22 @@ from amaranth.lib.wiring import In, Out
 from bonsai import config
 
 
-class CacheAccessReq(wiring.Signature):
+class CacheAccessReqSignature(wiring.Signature):
     """
     Cache Access Request
     """
 
-    # Address input
-    addr_in: In(config.ADDR_SHAPE)
-    # Data input
-    data_in: In(config.DATA_SHAPE)
-    # 1=Write enable/0=Read enable
-    we: In(1)
-    # Data output
-    data_out: Out(config.DATA_SHAPE)
-    # Read data valid
-    rd_valid: Out(1)
-    # Write Accept
-    wr_accept: Out(1)
-
-    def __eq__(self, other):
-        return self.members == other.members
+    def __init__(self):
+        super().__init__(
+            {
+                "addr_in": In(config.ADDR_SHAPE),
+                "data_in": In(config.DATA_SHAPE),
+                "we": In(1),
+                "data_out": Out(config.DATA_SHAPE),
+                "rd_valid": Out(1),
+                "wr_accept": Out(1),
+            }
+        )
 
 
 class FixedMemory(wiring.Component):
@@ -33,7 +29,7 @@ class FixedMemory(wiring.Component):
     Fixed Memory for Debug and Test
     """
 
-    req: In(CacheAccessReq)
+    req: In(CacheAccessReqSignature)
 
     def __init__(self, depth: int, init_data: list = [], domain: str = "comb"):
         self._depth = depth

@@ -6,16 +6,7 @@ from regfile import RegData, RegIndex
 import config
 
 
-class CmdUniqId(data.Struct):
-    """
-    Command Unique ID for logging
-    """
-
-    # Command Unique ID
-    uniq_id: config.REG_SHAPE
-
-
-class Pc(data.Struct):
+class InstLocate(data.Struct):
     """
     Program Counter
     """
@@ -24,7 +15,10 @@ class Pc(data.Struct):
     pc: config.ADDR_SHAPE
 
     # Unique ID (for logging)
-    uniq_id: In(CmdUniqId)
+    uniq_id: config.ADDR_SHAPE
+
+    # Number of instruction bytes
+    num_inst_bytes: config.INST_BYTES_SHAPE
 
 
 class RawInst(data.Struct):
@@ -36,111 +30,106 @@ class RawInst(data.Struct):
     inst: config.INST_SHAPE
 
     # PC (for logging)
-    pc: Pc
+    locate: InstLocate
 
     # Unique ID (for logging)
-    uniq_id: In(CmdUniqId)
+    uniq_id: config.ADDR_SHAPE
 
 
-class StallReq(wiring.Signature):
-    """
-    次サイクルを止める制御信号
-    """
-
-    en: In(unsigned(1))
-
-
-class FlushReq(wiring.Signature):
-    """
-    次サイクルでデータを捨てる制御信号
-    """
-
-    en: In(unsigned(1))
-
-
-class BranchReq(wiring.Signature):
+class BranchReq(data.Struct):
     """
     次サイクルで分岐/ジャンプを行う制御信号
     """
 
     # Branch enable
-    en: In(unsigned(1))
+    en: unsigned(1)
     # Branch target address
-    next_pc: In(Pc)
+    next_pc: config.ADDR_SHAPE
 
 
-class RegWrReq(wiring.Signature):
+class RegWrReq(data.Struct):
     """
     次サイクルで指定されたレジスタに書き込む制御信号
     """
 
     # enable
-    en: In(unsigned(1))
+    en: unsigned(1)
     # register index
-    index: In(RegIndex)
+    index: RegIndex
     # data
-    data: In(RegData)
+    data: RegData
 
 
-class RegFwdReq(wiring.Signature):
+class RegFwdReq(data.Struct):
     """
     次サイクルで指定されたレジスタをフォワーディング可能なデータとして設定する制御信号
     """
 
     # enable
-    en: In(unsigned(1))
+    en: unsigned(1)
     # register index
-    index: In(RegIndex)
+    index: RegIndex
     # data
-    data: In(RegData)
+    data: RegData
 
 
-class PrevStageReq(wiring.Signature):
+class PrevStageReq(data.Struct):
     """
     ステージ - ステージ間の制御信号
     """
 
     # Stall Request from previous stage
-    stall: In(StallReq)
+    stall: unsigned(1)
     # Flush Request from previous stage
-    flush: In(FlushReq)
+    flush: unsigned(1)
 
 
-class InstSelectReq(wiring.Signature):
+class InstSelectReqSignature(wiring.Signature):
     """
     ID(Instruction Decode) -> IS(Instruction Select)間の制御信号
     """
 
-    # stall/flush request from pipeline ctrl
-    common_req: In(PrevStageReq)
+    def __init__(self):
+        super().__init__(
+            {
+                # stall/flush request from pipeline ctrl
+                "common_req": In(PrevStageReq),
+                # Branch request
+                "branch_req": In(BranchReq),
+                # num instruction bytes
+                # 1=1byte, 2=2byte, 4=4byte, 8=8byte
+                "num_inst_bytes": In(config.INST_BYTES_SHAPE),
+            }
+        )
 
-    # Branch request
-    branch_req: In(BranchReq)
 
-    # num instruction bytes
-    # 1=1byte, 2=2byte, 4=4byte
-    num_inst_bytes: In(unsigned(2))
-
-
-class InstFetchReq(wiring.Signature):
+class InstFetchReqSignature(wiring.Signature):
     """
     IS(Instruction Select) -> IF(Instruction Fetch)間の制御信号
     """
 
-    # stall/flush request from IS
-    common_req: In(PrevStageReq)
+    def __init__(self):
+        super().__init__(
+            {
+                # stall/flush request from IS
+                "common_req": In(PrevStageReq),
+                # Target PC
+                "locate": In(InstLocate),
+            }
+        )
 
-    # Target PC
-    pc: In(Pc)
 
-
-class InstDecodeReq(wiring.Signature):
+class InstDecodeReqSignature(wiring.Signature):
     """
     IF(Instruction Fetch) -> ID(Instruction Decode)間の制御信号
     """
 
-    # stall/flush request from IF
-    common_req: In(PrevStageReq)
-
-    # Instruction
-    inst: In(RawInst)
+    def __init__(self):
+        super().__init__(
+            {
+                # stall/flush request from IF
+                "common_req": In(PrevStageReq),
+                # Instruction
+                "inst": In(RawInst),
+            }
+        )

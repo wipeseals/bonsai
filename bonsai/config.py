@@ -64,6 +64,9 @@ OPCODE_WIDTH: int = 7
 # Register shape
 REG_SHAPE: Shape = unsigned(REG_WIDTH)
 
+# Register shape (unsigned)
+INST_BYTES_SHAPE: Shape = unsigned(INST_BYTES)
+
 # Register shape (signed)
 SREG_SHAPE_SIGNED: Shape = signed(REG_WIDTH)
 

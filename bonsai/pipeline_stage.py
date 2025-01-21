@@ -1,78 +1,115 @@
 from amaranth import Module, Signal
-from amaranth.lib import wiring, memory
+from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
 from log import Kanata
-from pipeline_ctrl import BranchReq, FlushReq, InstFetchData, InstSelectReq, StallReq
+from pipeline_ctrl import (
+    InstFetchReqSignature,
+    InstSelectReqSignature,
+)
 import config
 import util
 
 
 class InstSelectStage(wiring.Component):
     """
-    Instruction Select Stage
+    Instruction (Address) Select Stage
     """
 
     # Instruction Select Request
-    req: In(InstSelectReq)
+    prev_req: In(InstSelectReqSignature())
 
     # Instruction Fetch Request
-    if_req: Out(InstFetchData)
+    next_req: Out(InstFetchReqSignature().flip())
 
-    def __init__(self, initial_pc: int = 0):
-        self._pc = initial_pc
+    def __init__(self, initial_pc: int = 0, initial_uniq_id: int = 0, lane_id: int = 0):
+        self._initial_pc = initial_pc
+        self._initial_uniq_id = initial_uniq_id
+        self._lane_id = lane_id
         super().__init__()
 
     def elaborate(self, platform):
         m = Module()
 
-        # for Output Signal
-        pc = Signal(config.PC_SHAPE, reset=self._pc)
-        uniq_id = Signal(config.UNIQ_ID_SHAPE, reset=0)
-        stall_req = Signal(StallReq, reset=1)
-        flush_req = Signal(FlushReq, reset=1)
-        m.d.comb += [
-            self.if_req.pc.eq(pc),
-            self.if_req.uniq_id.eq(uniq_id),
-            self.if_req.stall_req.eq(stall_req),
-            self.if_req.flush_req.eq(flush_req),
+        # local signals
+        pc = Signal(config.ADDR_SHAPE, reset=self._initial_pc)
+        uniq_id = Signal(config.ADDR_SHAPE, reset=self._initial_uniq_id)
+        next_req_sig = InstFetchReqSignature().create()
+        valid_prev_cycle = Signal(1, reset=0)
+
+        # log (IS stage end)
+        with m.If(valid_prev_cycle):
+            m.d.sync += Kanata.end_stage(
+                uniq_id=next_req_sig.locate.uniq_id, lane_id=self._lane_id, stage="IS"
+            )
+
+        # default next state
+        m.d.sync += [
+            # keep pc
+            pc.eq(pc),
+            next_req_sig.locate.pc.eq(pc),
+            # keep uniq_id
+            uniq_id.eq(uniq_id),
+            next_req_sig.locate.uniq_id.eq(uniq_id),
+            # pass request
+            next_req_sig.common_req.flush.eq(self.prev_req.common_req.flush),
+            next_req_sig.common_req.stall.eq(self.prev_req.common_req.stall),
+            next_req_sig.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
+            # invalid current cycle
+            valid_prev_cycle.eq(0),
         ]
 
-        with m.If(self.flush_req.en):
+        # main logic
+        with m.If(self.prev_req.common_req.flush):
             # Flush Request
             m.d.sync += [
-                pc.eq(0),
-                uniq_id.eq(0),
-                stall_req.eq(1),
-                flush_req.eq(1),
+                # reset pc
+                pc.eq(self._initial_pc),
+                next_req_sig.locate.pc.eq(self._initial_pc),
             ]
         with m.Else():
-            with m.If(self.stall_req.en):
+            with m.If(self.prev_req.common_req.stall):
                 # Stall Request
-                m.d.sync += [
-                    pc.eq(0),
-                    uniq_id.eq(0),
-                    stall_req.eq(1),
-                    flush_req.eq(0),
-                ]
+                pass
             with m.Else():
-                # 分岐必要なら指定されたPCに移動。そうでなければ現在地をそのまま出力
-                with m.If(self.branch_req.en):
+                with m.If(self.prev_req.branch_req.en):
                     # Branch Request
                     m.d.sync += [
-                        pc.eq(self.branch_req.next_pc),
+                        # set branch target pc
+                        pc.eq(
+                            self.prev_req.branch_req.next_pc
+                            + self.prev_req.num_inst_bytes
+                        ),
+                        next_req_sig.locate.pc.eq(self.prev_req.branch_req.next_pc),
+                        # increment uniq_id
                         uniq_id.eq(uniq_id + 1),
-                        stall_req.eq(0),
-                        flush_req.eq(0),
+                        next_req_sig.locate.uniq_id.eq(uniq_id),
                     ]
                 with m.Else():
                     # Increment PC
                     m.d.sync += [
-                        pc.eq(pc + 1),
+                        # increment pc
+                        pc.eq(pc + self.prev_req.num_inst_bytes),
+                        next_req_sig.locate.pc.eq(pc),
+                        # increment uniq_id
                         uniq_id.eq(uniq_id + 1),
-                        stall_req.eq(0),
-                        flush_req.eq(0),
+                        next_req_sig.locate.uniq_id.eq(uniq_id),
                     ]
+                    # log (cmd start, IS stage start)
+                    m.d.sync += [
+                        # valid current cycle
+                        valid_prev_cycle.eq(1),
+                        # log
+                        Kanata.start_cmd(uniq_id=uniq_id),
+                        Kanata.start_stage(
+                            uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                        ),
+                        Kanata.label_cmd_is(
+                            uniq_id=uniq_id, label_type=Kanata.LabelType.ALWAYS, pc=pc
+                        ),
+                    ]
+
+        return m
 
 
 if __name__ == "__main__":

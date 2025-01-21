@@ -3,7 +3,7 @@ from bonsai.pipeline_stage import InstFetchStage
 from tests.testutil import run_sim
 
 
-def test_if_jump():
+def test_is_increment():
     dut = InstFetchStage()
 
     async def bench(ctx):
