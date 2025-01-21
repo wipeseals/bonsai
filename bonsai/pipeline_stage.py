@@ -1,3 +1,4 @@
+from enum import Flag, auto
 from amaranth import Module, Signal
 from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
@@ -10,6 +11,24 @@ from pipeline_ctrl import (
 )
 import config
 import util
+
+
+class PrintFlag(Flag):
+    """
+    Kanata Print Option
+    """
+
+    HEADER = auto()
+    ELAPLED_CYC = auto()
+    STAGE = auto()
+
+    @classmethod
+    def none(cls):
+        return 0
+
+    @classmethod
+    def all(cls):
+        return cls.HEADER | cls.ELAPLED_CYC | cls.STAGE
 
 
 class InstSelectStage(wiring.Component):
@@ -26,10 +45,17 @@ class InstSelectStage(wiring.Component):
     # Instruction Fetch Request
     next_req: Out(InstFetchReqSignature().flip())
 
-    def __init__(self, initial_pc: int = 0, initial_uniq_id: int = 0, lane_id: int = 0):
+    def __init__(
+        self,
+        initial_pc: int = 0,
+        initial_uniq_id: int = 0,
+        lane_id: int = 0,
+        print_flag: PrintFlag = PrintFlag.all(),
+    ):
         self._initial_pc = initial_pc
         self._initial_uniq_id = initial_uniq_id
         self._lane_id = lane_id
+        self._print_flag = print_flag
         super().__init__()
 
     def elaborate(self, platform):
@@ -42,14 +68,16 @@ class InstSelectStage(wiring.Component):
 
         # log (initial header)
         with m.If(cyc == 0):
-            # header + start cycle
-            m.d.sync += [
-                Kanata.header(),
-                Kanata.start_cyc(cycle=cyc),
-            ]
+            if PrintFlag.HEADER in self._print_flag:
+                # header + start cycle
+                m.d.sync += [
+                    Kanata.header(),
+                    Kanata.start_cyc(cycle=cyc),
+                ]
         with m.Else():
-            # elapsed 1 cycle
-            m.d.sync += [Kanata.elapsed_cyc(cycle=1)]
+            if PrintFlag.ELAPLED_CYC in self._print_flag:
+                # elapsed 1 cycle
+                m.d.sync += [Kanata.elapsed_cyc(cycle=1)]
 
         # log (IS stage end)
         with m.If(self.next_req.en):
@@ -103,18 +131,19 @@ class InstSelectStage(wiring.Component):
                             uniq_id.eq(uniq_id + 1),
                             self.next_req.locate.uniq_id.eq(uniq_id),
                         ]
-                        # log (cmd start, IS stage start)
-                        m.d.sync += [
-                            Kanata.start_cmd(uniq_id=uniq_id),
-                            Kanata.start_stage(
-                                uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
-                            ),
-                            Kanata.label_cmd_is(
-                                uniq_id=uniq_id,
-                                label_type=Kanata.LabelType.ALWAYS,
-                                pc=self.prev_req.branch_req.next_pc,
-                            ),
-                        ]
+                        if PrintFlag.STAGE in self._print_flag:
+                            # log (cmd start, IS stage start)
+                            m.d.sync += [
+                                Kanata.start_cmd(uniq_id=uniq_id),
+                                Kanata.start_stage(
+                                    uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                                ),
+                                Kanata.label_cmd_is(
+                                    uniq_id=uniq_id,
+                                    label_type=Kanata.LabelType.ALWAYS,
+                                    pc=self.prev_req.branch_req.next_pc,
+                                ),
+                            ]
                     with m.Else():
                         # Increment PC
                         m.d.sync += [
@@ -127,18 +156,19 @@ class InstSelectStage(wiring.Component):
                             uniq_id.eq(uniq_id + 1),
                             self.next_req.locate.uniq_id.eq(uniq_id),
                         ]
-                        # log (cmd start, IS stage start)
-                        m.d.sync += [
-                            Kanata.start_cmd(uniq_id=uniq_id),
-                            Kanata.start_stage(
-                                uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
-                            ),
-                            Kanata.label_cmd_is(
-                                uniq_id=uniq_id,
-                                label_type=Kanata.LabelType.ALWAYS,
-                                pc=pc,
-                            ),
-                        ]
+                        if PrintFlag.STAGE in self._print_flag:
+                            # log (cmd start, IS stage start)
+                            m.d.sync += [
+                                Kanata.start_cmd(uniq_id=uniq_id),
+                                Kanata.start_stage(
+                                    uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                                ),
+                                Kanata.label_cmd_is(
+                                    uniq_id=uniq_id,
+                                    label_type=Kanata.LabelType.ALWAYS,
+                                    pc=pc,
+                                ),
+                            ]
         return m
 
 
