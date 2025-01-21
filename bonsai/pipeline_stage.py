@@ -34,81 +34,86 @@ class InstSelectStage(wiring.Component):
         # local signals
         pc = Signal(config.ADDR_SHAPE, reset=self._initial_pc)
         uniq_id = Signal(config.ADDR_SHAPE, reset=self._initial_uniq_id)
-        next_req_sig = InstFetchReqSignature().create()
-        valid_prev_cycle = Signal(1, reset=0)
 
         # log (IS stage end)
-        with m.If(valid_prev_cycle):
+        with m.If(self.next_req.en):
             m.d.sync += Kanata.end_stage(
-                uniq_id=next_req_sig.locate.uniq_id, lane_id=self._lane_id, stage="IS"
+                uniq_id=self.next_req.locate.uniq_id, lane_id=self._lane_id, stage="IS"
             )
 
         # default next state
         m.d.sync += [
+            # disable current cycle destination
+            self.next_req.en.eq(0),
             # keep pc
             pc.eq(pc),
-            next_req_sig.locate.pc.eq(pc),
+            self.next_req.locate.pc.eq(pc),
             # keep uniq_id
             uniq_id.eq(uniq_id),
-            next_req_sig.locate.uniq_id.eq(uniq_id),
+            self.next_req.locate.uniq_id.eq(uniq_id),
             # pass request
-            next_req_sig.common_req.flush.eq(self.prev_req.common_req.flush),
-            next_req_sig.common_req.stall.eq(self.prev_req.common_req.stall),
-            next_req_sig.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
-            # invalid current cycle
-            valid_prev_cycle.eq(0),
+            self.next_req.ctrl.flush.eq(self.prev_req.ctrl.flush),
+            self.next_req.ctrl.stall.eq(self.prev_req.ctrl.stall),
+            self.next_req.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
         ]
 
         # main logic
-        with m.If(self.prev_req.common_req.flush):
-            # Flush Request
-            m.d.sync += [
-                # reset pc
-                pc.eq(self._initial_pc),
-                next_req_sig.locate.pc.eq(self._initial_pc),
-            ]
+        with m.If(~self.prev_req.en):
+            # No Request
+            pass
         with m.Else():
-            with m.If(self.prev_req.common_req.stall):
-                # Stall Request
-                pass
+            with m.If(self.prev_req.ctrl.flush):
+                # Flush Request
+                m.d.sync += [
+                    # reset pc
+                    pc.eq(self._initial_pc),
+                    self.next_req.locate.pc.eq(self._initial_pc),
+                ]
             with m.Else():
-                with m.If(self.prev_req.branch_req.en):
-                    # Branch Request
-                    m.d.sync += [
-                        # set branch target pc
-                        pc.eq(
-                            self.prev_req.branch_req.next_pc
-                            + self.prev_req.num_inst_bytes
-                        ),
-                        next_req_sig.locate.pc.eq(self.prev_req.branch_req.next_pc),
-                        # increment uniq_id
-                        uniq_id.eq(uniq_id + 1),
-                        next_req_sig.locate.uniq_id.eq(uniq_id),
-                    ]
+                with m.If(self.prev_req.ctrl.stall):
+                    # Stall Request
+                    pass
                 with m.Else():
-                    # Increment PC
-                    m.d.sync += [
-                        # increment pc
-                        pc.eq(pc + self.prev_req.num_inst_bytes),
-                        next_req_sig.locate.pc.eq(pc),
-                        # increment uniq_id
-                        uniq_id.eq(uniq_id + 1),
-                        next_req_sig.locate.uniq_id.eq(uniq_id),
-                    ]
-                    # log (cmd start, IS stage start)
-                    m.d.sync += [
-                        # valid current cycle
-                        valid_prev_cycle.eq(1),
-                        # log
-                        Kanata.start_cmd(uniq_id=uniq_id),
-                        Kanata.start_stage(
-                            uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
-                        ),
-                        Kanata.label_cmd_is(
-                            uniq_id=uniq_id, label_type=Kanata.LabelType.ALWAYS, pc=pc
-                        ),
-                    ]
-
+                    with m.If(self.prev_req.branch_req.en):
+                        # Branch Request
+                        m.d.sync += [
+                            # set branch target pc
+                            pc.eq(
+                                self.prev_req.branch_req.next_pc
+                                + self.prev_req.num_inst_bytes
+                            ),
+                            self.next_req.locate.pc.eq(
+                                self.prev_req.branch_req.next_pc
+                            ),
+                            # increment uniq_id
+                            uniq_id.eq(uniq_id + 1),
+                            self.next_req.locate.uniq_id.eq(uniq_id),
+                        ]
+                    with m.Else():
+                        # Increment PC
+                        m.d.sync += [
+                            # enable current cycle destination
+                            self.next_req.en.eq(1),
+                            # increment pc
+                            pc.eq(pc + self.prev_req.num_inst_bytes),
+                            self.next_req.locate.pc.eq(pc),
+                            # increment uniq_id
+                            uniq_id.eq(uniq_id + 1),
+                            self.next_req.locate.uniq_id.eq(uniq_id),
+                        ]
+                        # log (cmd start, IS stage start)
+                        m.d.sync += [
+                            # log
+                            Kanata.start_cmd(uniq_id=uniq_id),
+                            Kanata.start_stage(
+                                uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                            ),
+                            Kanata.label_cmd_is(
+                                uniq_id=uniq_id,
+                                label_type=Kanata.LabelType.ALWAYS,
+                                pc=pc,
+                            ),
+                        ]
         return m
 
 

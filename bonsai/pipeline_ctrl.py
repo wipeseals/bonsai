@@ -73,7 +73,7 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class PrevStageReq(data.Struct):
+class StageCtrlReq(data.Struct):
     """
     ステージ - ステージ間の制御信号
     """
@@ -92,8 +92,10 @@ class InstSelectReqSignature(wiring.Signature):
     def __init__(self):
         super().__init__(
             {
+                # data enable
+                "en": In(unsigned(1)),
                 # stall/flush request from pipeline ctrl
-                "common_req": In(PrevStageReq),
+                "ctrl": In(StageCtrlReq),
                 # Branch request
                 "branch_req": In(BranchReq),
                 # num instruction bytes
@@ -111,8 +113,10 @@ class InstFetchReqSignature(wiring.Signature):
     def __init__(self):
         super().__init__(
             {
+                # data enable
+                "en": In(unsigned(1)),
                 # stall/flush request from IS
-                "common_req": In(PrevStageReq),
+                "ctrl": In(StageCtrlReq),
                 # Target PC
                 "locate": In(InstLocate),
             }
@@ -127,8 +131,10 @@ class InstDecodeReqSignature(wiring.Signature):
     def __init__(self):
         super().__init__(
             {
+                # data enable
+                "en": In(unsigned(1)),
                 # stall/flush request from IF
-                "common_req": In(PrevStageReq),
+                "ctrl": In(StageCtrlReq),
                 # Instruction
                 "inst": In(RawInst),
             }
