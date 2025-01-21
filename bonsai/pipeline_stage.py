@@ -38,6 +38,18 @@ class InstSelectStage(wiring.Component):
         # local signals
         pc = Signal(config.ADDR_SHAPE, init=self._initial_pc)
         uniq_id = Signal(config.ADDR_SHAPE, init=self._initial_uniq_id)
+        cyc = Signal(config.REG_SHAPE, init=0)
+
+        # log (initial header)
+        with m.If(cyc == 0):
+            # header + start cycle
+            m.d.sync += [
+                Kanata.header(),
+                Kanata.start_cyc(cycle=cyc),
+            ]
+        with m.Else():
+            # elapsed 1 cycle
+            m.d.sync += [Kanata.elapsed_cyc(cycle=1)]
 
         # log (IS stage end)
         with m.If(self.next_req.en):
@@ -57,6 +69,8 @@ class InstSelectStage(wiring.Component):
             self.next_req.locate.uniq_id.eq(uniq_id),
             # pass request
             self.next_req.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
+            # always increment cyc
+            cyc.eq(cyc + 1),
         ]
 
         # main logic
@@ -91,7 +105,6 @@ class InstSelectStage(wiring.Component):
                         ]
                         # log (cmd start, IS stage start)
                         m.d.sync += [
-                            # log
                             Kanata.start_cmd(uniq_id=uniq_id),
                             Kanata.start_stage(
                                 uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
@@ -116,7 +129,6 @@ class InstSelectStage(wiring.Component):
                         ]
                         # log (cmd start, IS stage start)
                         m.d.sync += [
-                            # log
                             Kanata.start_cmd(uniq_id=uniq_id),
                             Kanata.start_stage(
                                 uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
