@@ -1,104 +1,180 @@
-from typing import Any
-from amaranth import Const, Format, Module, Mux, Print, Shape, Signal, unsigned
-from amaranth.lib import wiring, enum, data, memory, stream
+from enum import Flag, auto
+from amaranth import Module, Signal
+from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
-import pipeline
+from log import Kanata
+from bonsai.format import (
+    InstFetchReqSignature,
+    InstSelectReqSignature,
+    StageCtrlReq,
+)
 import config
 import util
 
 
-class IfStage(wiring.Component):
+class PrintFlag(Flag):
     """
-    Instruction Fetch First Stage
-    """
-
-    input: In(pipeline.IfReg)
-    output: Out(pipeline.IfIsReg)
-    side_ctrl: In(pipeline.SideCtrl)
-
-    def elaborate(self, platform):
-        m = Module()
-
-        # 型定義得るために追加
-        input: pipeline.IfReg = self.input
-        output: pipeline.IfIsReg = self.output
-        side_ctrl: pipeline.SideCtrl = self.side_ctrl
-
-        # Debug sequence counter
-        debug = Signal(pipeline.StageCtrlDebug)
-        m.d.sync += debug.cyc.eq(side_ctrl.cyc)
-
-        # Push Instruction fetch address
-        with m.If(side_ctrl.clr):
-            # stall中にflushがかかった場合は、flushを優先する
-            m.d.sync += output.flush()
-        with m.Else():
-            with m.If(input.ctrl.en):
-                m.d.sync += output.push(addr=input.pc, debug=debug)
-                # fetch sequence number更新
-                m.d.sync += debug.seqno.eq(debug.seqno + 1)
-            with m.Else():
-                m.d.sync += output.stall()
-
-        return m
-
-
-class IsStage(wiring.Component):
-    """
-    Instruction Fetch Second Stage
+    Kanata Print Option
     """
 
-    input: In(pipeline.IfIsReg)
-    output: Out(pipeline.IsRfReg)
-    side_ctrl: In(pipeline.SideCtrl)
+    HEADER = auto()
+    ELAPLED_CYC = auto()
+    STAGE = auto()
 
-    def __init__(self, init_data: Any = []):
-        self._init_data = init_data
+    @classmethod
+    def none(cls):
+        return 0
+
+    @classmethod
+    def all(cls):
+        return cls.HEADER | cls.ELAPLED_CYC | cls.STAGE
+
+
+class InstSelectStage(wiring.Component):
+    """
+    Instruction (Address) Select Stage
+    """
+
+    # Stage Control Request
+    ctrl_req: In(StageCtrlReq())
+
+    # Instruction Select Request
+    prev_req: In(InstSelectReqSignature())
+
+    # Instruction Fetch Request
+    next_req: Out(InstFetchReqSignature().flip())
+
+    def __init__(
+        self,
+        initial_pc: int = 0,
+        initial_uniq_id: int = 0,
+        lane_id: int = 0,
+        print_flag: PrintFlag = PrintFlag.all(),
+    ):
+        self._initial_pc = initial_pc
+        self._initial_uniq_id = initial_uniq_id
+        self._lane_id = lane_id
+        self._print_flag = print_flag
         super().__init__()
 
     def elaborate(self, platform):
         m = Module()
 
-        # 型定義得るために追加
-        input: pipeline.IfIsReg = self.input
-        output: pipeline.IsRfReg = self.output
-        side_ctrl: pipeline.SideCtrl = self.side_ctrl
+        # local signals
+        pc = Signal(config.ADDR_SHAPE, init=self._initial_pc)
+        uniq_id = Signal(config.ADDR_SHAPE, init=self._initial_uniq_id)
+        cyc = Signal(config.REG_SHAPE, init=0)
 
-        # L1 Cache Body
-        m.submodules.mem = mem = memory.Memory(
-            shape=config.INST_SHAPE, depth=config.L1_CACHE_DEPTH, init=self._init_data
-        )
+        # log (initial header)
+        with m.If(cyc == 0):
+            if PrintFlag.HEADER in self._print_flag:
+                # header + start cycle
+                m.d.sync += [
+                    Kanata.header(),
+                    Kanata.start_cyc(cycle=cyc),
+                ]
+        with m.Else():
+            if PrintFlag.ELAPLED_CYC in self._print_flag:
+                # elapsed 1 cycle
+                m.d.sync += [Kanata.elapsed_cyc(cycle=1)]
 
-        # TODO: 外部ポートを追加し、キャッシュできるようにする
-        # wr_port = mem.write_port()
+        # log (IS stage end)
+        with m.If(self.next_req.en):
+            m.d.sync += Kanata.end_stage(
+                uniq_id=self.next_req.locate.uniq_id, lane_id=self._lane_id, stage="IS"
+            )
 
-        # Pipeline Register間にFF挟む必要ないので、直接接続かつ非同期で構成
-        rd_port = mem.read_port(domain="comb")
-        m.d.comb += [
-            # memはINST_SHAPEの配列で確保してあるので、下位ビットを落とす
-            rd_port.addr.eq(input.addr.shift_right(config.INST_ADDR_SHIFT)),
+        # default next state
+        m.d.sync += [
+            # disable current cycle destination
+            self.next_req.en.eq(0),
+            # keep pc
+            pc.eq(pc),
+            self.next_req.locate.pc.eq(pc),
+            # keep uniq_id
+            uniq_id.eq(uniq_id),
+            self.next_req.locate.uniq_id.eq(uniq_id),
+            # pass request
+            self.next_req.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
+            # always increment cyc
+            cyc.eq(cyc + 1),
         ]
 
-        # Push Instruction fetch address
-        with m.If(side_ctrl.clr):
-            # stall中にflushがかかった場合は、flushを優先する
-            m.d.sync += output.flush()
+        # main logic
+        with m.If(~self.prev_req.en):
+            # No Request
+            pass
         with m.Else():
-            with m.If(input.ctrl.en):
-                # TODO: CacheMiss時の処理を追加
-
-                # メモリから出力されている命令を次のステージに渡す
-                m.d.sync += output.push(
-                    addr=input.addr, inst=rd_port.data, debug=input.ctrl.debug
-                )
+            with m.If(self.ctrl_req.flush):
+                # Flush Request
+                pass
             with m.Else():
-                m.d.sync += output.stall()
-
+                with m.If(self.ctrl_req.stall):
+                    # Stall Request
+                    pass
+                with m.Else():
+                    with m.If(self.prev_req.branch_req.en):
+                        # Branch Request
+                        m.d.sync += [
+                            # enable current cycle destination
+                            self.next_req.en.eq(1),
+                            # set branch target pc
+                            pc.eq(
+                                self.prev_req.branch_req.next_pc
+                                + self.prev_req.num_inst_bytes
+                            ),
+                            self.next_req.locate.pc.eq(
+                                self.prev_req.branch_req.next_pc
+                            ),
+                            # increment uniq_id
+                            uniq_id.eq(uniq_id + 1),
+                            self.next_req.locate.uniq_id.eq(uniq_id),
+                        ]
+                        if PrintFlag.STAGE in self._print_flag:
+                            # log (cmd start, IS stage start)
+                            m.d.sync += [
+                                Kanata.start_cmd(uniq_id=uniq_id),
+                                Kanata.start_stage(
+                                    uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                                ),
+                                Kanata.label_cmd_is(
+                                    uniq_id=uniq_id,
+                                    label_type=Kanata.LabelType.ALWAYS,
+                                    pc=self.prev_req.branch_req.next_pc,
+                                ),
+                            ]
+                    with m.Else():
+                        # Increment PC
+                        m.d.sync += [
+                            # enable current cycle destination
+                            self.next_req.en.eq(1),
+                            # increment pc
+                            pc.eq(pc + self.prev_req.num_inst_bytes),
+                            self.next_req.locate.pc.eq(pc),
+                            # increment uniq_id
+                            uniq_id.eq(uniq_id + 1),
+                            self.next_req.locate.uniq_id.eq(uniq_id),
+                        ]
+                        if PrintFlag.STAGE in self._print_flag:
+                            # log (cmd start, IS stage start)
+                            m.d.sync += [
+                                Kanata.start_cmd(uniq_id=uniq_id),
+                                Kanata.start_stage(
+                                    uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                                ),
+                                Kanata.label_cmd_is(
+                                    uniq_id=uniq_id,
+                                    label_type=Kanata.LabelType.ALWAYS,
+                                    pc=pc,
+                                ),
+                            ]
         return m
 
 
 if __name__ == "__main__":
-    stages = [IfStage(), IsStage()]
+    stages = [
+        InstSelectStage(),
+    ]
     for stage in stages:
         util.export_verilog_file(stage, f"{stage.__class__.__name__}")

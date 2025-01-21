@@ -1,133 +1,210 @@
-from operator import is_
-from amaranth import Const
-from bonsai import config
-from bonsai.stage import IsStage
+from bonsai.stage import InstSelectStage
 
 from tests.testutil import run_sim
+import pytest
+
+INITIAL_PC: int = 0x1000
+INITIAL_UNIQ_ID: int = 1000
+LANE_ID: int = 0
 
 
-def generate_test_data():
-    """
-    Generate test data for instruction fetch second stage.
-    """
-    return [Const(~x, config.INST_SHAPE) for x in range(config.L1_CACHE_DEPTH)]
-
-
-def test_is_flush():
-    dut = IsStage()
-
-    async def bench(ctx):
-        # initial
-        addr = 0xAA
-        ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 0)
-        ctx.set(dut.input.addr, addr)
-        await ctx.tick()
-        assert ctx.get(dut.output.addr) == addr
-        assert ctx.get(dut.output.ctrl.en) == 1
-        # flush
-        addr = 0x55
-        ctx.set(dut.input.ctrl.en, 1)
-        ctx.set(dut.side_ctrl.clr, 1)
-        ctx.set(dut.input.addr, addr)
-        await ctx.tick()
-        assert ctx.get(dut.output.addr) == 0
-        assert ctx.get(dut.output.ctrl.en) == 0
-
-    run_sim(f"{test_is_flush.__name__}", dut=dut, testbench=bench)
-
-
-def test_is_freerun():
-    inst_test_data = generate_test_data()
-    dut = IsStage(init_data=inst_test_data)
+@pytest.mark.parametrize("num_inst_bytes", [2, 4, 8])
+def test_is_increment(num_inst_bytes: int, test_cycles: int = 30):
+    dut = InstSelectStage(
+        initial_pc=INITIAL_PC,
+        initial_uniq_id=INITIAL_UNIQ_ID,
+        lane_id=LANE_ID,
+    )
 
     async def bench(ctx):
-        for i in range(config.L1_CACHE_DEPTH):
-            addr = i * 4
-            ctx.set(dut.input.ctrl.en, 1)
-            ctx.set(dut.input.addr, addr)
-            ctx.set(dut.input.ctrl.debug.cyc, i)
-            ctx.set(dut.input.ctrl.debug.seqno, i)
-            ctx.set(dut.side_ctrl.clr, 0)
+        # enable & no flush/stall
+        ctx.set(dut.prev_req.en, 1)
+        ctx.set(dut.ctrl_req.stall, 0)
+        ctx.set(dut.ctrl_req.flush, 0)
+        # no branch
+        ctx.set(dut.prev_req.branch_req.en, 0)
+        ctx.set(dut.prev_req.branch_req.next_pc, 0)
+        # set num_inst_bytes
+        ctx.set(dut.prev_req.num_inst_bytes, num_inst_bytes)
+
+        for cyc in range(test_cycles):
             await ctx.tick()
-            assert ctx.get(dut.output.addr) == addr
-            assert ctx.get(dut.output.inst) == inst_test_data[i].value
-            assert ctx.get(dut.output.ctrl.en) == 1
-            assert ctx.get(dut.output.ctrl.debug.seqno) == i
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc
+            assert ctx.get(dut.next_req.locate.pc) == INITIAL_PC + num_inst_bytes * cyc
+            assert ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
 
-    run_sim(f"{test_is_freerun.__name__}", dut=dut, testbench=bench)
+    run_sim(f"{test_is_increment.__name__}_{num_inst_bytes}", dut=dut, testbench=bench)
 
 
-def test_is_stall():
-    inst_test_data = generate_test_data()
-    dut = IsStage(init_data=inst_test_data)
+@pytest.mark.parametrize("stall_cyc", [1, 3, 5])
+def test_is_stall(stall_cyc: int, num_inst_bytes: int = 4):
+    dut = InstSelectStage(
+        initial_pc=INITIAL_PC,
+        initial_uniq_id=INITIAL_UNIQ_ID,
+        lane_id=LANE_ID,
+    )
 
     async def bench(ctx):
-        stall_start_cyc = 10
-        stall_end_cyc = 20
-        for i in range(config.L1_CACHE_DEPTH):
-            is_stall = stall_start_cyc <= i < stall_end_cyc
-            addr = i * 4
-            if is_stall:
-                ctx.set(dut.input.ctrl.en, 0)
-            else:
-                ctx.set(dut.input.ctrl.en, 1)
-            ctx.set(dut.input.addr, addr)
-            ctx.set(dut.input.ctrl.debug.cyc, i)
-            ctx.set(dut.input.ctrl.debug.seqno, i)
-            ctx.set(dut.side_ctrl.clr, 0)
+        # enable & no flush/stall
+        ctx.set(dut.prev_req.en, 1)
+        ctx.set(dut.ctrl_req.stall, 0)
+        ctx.set(dut.ctrl_req.flush, 0)
+        # no branch
+        ctx.set(dut.prev_req.branch_req.en, 0)
+        ctx.set(dut.prev_req.branch_req.next_pc, 0)
+        # set num_inst_bytes
+        ctx.set(dut.prev_req.num_inst_bytes, num_inst_bytes)
+
+        pre_cyc = 3
+        for cyc in range(pre_cyc):
             await ctx.tick()
-            if is_stall:
-                # assert ctx.get(dut.output.addr) == 0 # Don't care
-                # assert ctx.get(dut.output.inst) == 0 # Don't care
-                assert ctx.get(dut.output.ctrl.en) == 0
-            else:
-                assert ctx.get(dut.output.addr) == addr
-                assert ctx.get(dut.output.inst) == inst_test_data[i].value
-                assert ctx.get(dut.output.ctrl.en) == 1
-                assert ctx.get(dut.output.ctrl.debug.seqno) == i
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc
+            assert ctx.get(dut.next_req.locate.pc) == INITIAL_PC + num_inst_bytes * cyc
+            assert ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
+
+        # stall
+        ctx.set(dut.ctrl_req.stall, 1)
+        for cyc in range(stall_cyc):
+            await ctx.tick()
+            # check enable
+            assert ctx.get(dut.next_req.en) == 0
+
+        # release stall
+        ctx.set(dut.ctrl_req.stall, 0)
+
+        post_cyc = 3
+        for cyc in range(post_cyc):
+            await ctx.tick()
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc
+            assert ctx.get(dut.next_req.locate.pc) == INITIAL_PC + num_inst_bytes * (
+                pre_cyc + cyc
+            )
+            assert (
+                ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc + cyc
+            )
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
 
     run_sim(f"{test_is_stall.__name__}", dut=dut, testbench=bench)
 
 
-def test_is_flush_when_stall():
-    inst_test_data = generate_test_data()
-    dut = IsStage(init_data=inst_test_data)
+def test_is_flush(num_inst_bytes: int = 4):
+    dut = InstSelectStage(
+        initial_pc=INITIAL_PC,
+        initial_uniq_id=INITIAL_UNIQ_ID,
+        lane_id=LANE_ID,
+    )
 
     async def bench(ctx):
-        stall_start_cyc = 10
-        stall_end_cyc = 20
-        flush_cyc = 15
+        # enable & no flush/stall
+        ctx.set(dut.prev_req.en, 1)
+        ctx.set(dut.ctrl_req.stall, 0)
+        ctx.set(dut.ctrl_req.flush, 0)
+        # no branch
+        ctx.set(dut.prev_req.branch_req.en, 0)
+        ctx.set(dut.prev_req.branch_req.next_pc, 0)
+        # set num_inst_bytes
+        ctx.set(dut.prev_req.num_inst_bytes, num_inst_bytes)
 
-        for i in range(config.L1_CACHE_DEPTH):
-            is_stall = stall_start_cyc <= i < stall_end_cyc
-            is_flush = i == flush_cyc
-            addr = i * 4
-            if is_stall:
-                ctx.set(dut.input.ctrl.en, 0)
-            else:
-                ctx.set(dut.input.ctrl.en, 1)
-            ctx.set(dut.input.addr, addr)
-            ctx.set(dut.input.ctrl.debug.cyc, i)
-            ctx.set(dut.input.ctrl.debug.seqno, i)
-            if is_flush:
-                ctx.set(dut.side_ctrl.clr, 1)
-            else:
-                ctx.set(dut.side_ctrl.clr, 0)
-
+        pre_cyc = 3
+        for cyc in range(pre_cyc):
             await ctx.tick()
-            if is_flush:
-                assert ctx.get(dut.output.addr) == 0
-                assert ctx.get(dut.output.inst) == 0
-                assert ctx.get(dut.output.ctrl.en) == 0
-            elif is_stall:
-                # assert ctx.get(dut.output.addr) == 0 # Don't care
-                # assert ctx.get(dut.output.inst) == 0 # Don't care
-                assert ctx.get(dut.output.ctrl.en) == 0
-            else:
-                assert ctx.get(dut.output.addr) == addr
-                assert ctx.get(dut.output.inst) == inst_test_data[i].value
-                assert ctx.get(dut.output.ctrl.en) == 1
-                assert ctx.get(dut.output.ctrl.debug.seqno) == i
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc
+            assert ctx.get(dut.next_req.locate.pc) == INITIAL_PC + num_inst_bytes * cyc
+            assert ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
 
-    run_sim(f"{test_is_flush_when_stall.__name__}", dut=dut, testbench=bench)
+        # flush
+        ctx.set(dut.ctrl_req.flush, 1)
+        await ctx.tick()
+        # check enable
+        assert ctx.get(dut.next_req.en) == 0
+
+        ctx.set(dut.ctrl_req.flush, 0)
+        post_cyc = 3
+        for cyc in range(post_cyc):
+            await ctx.tick()
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc (keep pc/uniq_id)
+            assert ctx.get(dut.next_req.locate.pc) == INITIAL_PC + num_inst_bytes * (
+                cyc + pre_cyc
+            )
+            assert (
+                ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + cyc + pre_cyc
+            )
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
+
+    run_sim(f"{test_is_flush.__name__}", dut=dut, testbench=bench)
+
+
+@pytest.mark.parametrize("num_inst_bytes", [2, 4, 8])
+def test_is_branch_target(num_inst_bytes: int):
+    dut = InstSelectStage(
+        initial_pc=INITIAL_PC,
+        initial_uniq_id=INITIAL_UNIQ_ID,
+        lane_id=LANE_ID,
+    )
+
+    async def bench(ctx):
+        # enable & no flush/stall
+        ctx.set(dut.prev_req.en, 1)
+        ctx.set(dut.ctrl_req.stall, 0)
+        ctx.set(dut.ctrl_req.flush, 0)
+        # no branch
+        ctx.set(dut.prev_req.branch_req.en, 0)
+        ctx.set(dut.prev_req.branch_req.next_pc, 0)
+        # set num_inst_bytes
+        ctx.set(dut.prev_req.num_inst_bytes, num_inst_bytes)
+
+        pre_cyc = 3
+        for cyc in range(pre_cyc):
+            await ctx.tick()
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc
+            assert ctx.get(dut.next_req.locate.pc) == INITIAL_PC + num_inst_bytes * cyc
+            assert ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
+
+        # branch
+        branch_pc = 0x2000
+        ctx.set(dut.prev_req.branch_req.en, 1)
+        ctx.set(dut.prev_req.branch_req.next_pc, branch_pc)
+        await ctx.tick()
+        # check enable
+        # note: 後段stageのflushはbranch入力時に並行してフィードバックかける想定
+        assert ctx.get(dut.next_req.en) == 1
+        # check pc
+        assert ctx.get(dut.next_req.locate.pc) == branch_pc
+        assert ctx.get(dut.next_req.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
+
+        # increment
+        ctx.set(dut.prev_req.branch_req.en, 0)
+        post_cyc = 3
+        for cyc in range(post_cyc):
+            await ctx.tick()
+            # check enable
+            assert ctx.get(dut.next_req.en) == 1
+            # check pc
+            assert ctx.get(dut.next_req.locate.pc) == branch_pc + num_inst_bytes * (
+                cyc + 1
+            )  # branch + post_cyc
+            assert (
+                ctx.get(dut.next_req.locate.uniq_id)
+                == INITIAL_UNIQ_ID + pre_cyc + 1 + cyc  # pre_cyc + branch + post_cyc
+            )
+            assert ctx.get(dut.next_req.locate.num_inst_bytes) == num_inst_bytes
+
+    run_sim(
+        f"{test_is_branch_target.__name__}_{num_inst_bytes}", dut=dut, testbench=bench
+    )
