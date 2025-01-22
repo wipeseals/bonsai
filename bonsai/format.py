@@ -73,7 +73,7 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class StageCtrlReq(wiring.Signature):
+class StageCtrlReqSignature(wiring.Signature):
     """
     全体から個別Stageへの制御信号
     """

@@ -7,7 +7,7 @@ from log import Kanata
 from bonsai.format import (
     InstFetchReqSignature,
     InstSelectReqSignature,
-    StageCtrlReq,
+    StageCtrlReqSignature,
 )
 import config
 import util
@@ -37,7 +37,7 @@ class InstSelectStage(wiring.Component):
     """
 
     # Stage Control Request
-    ctrl_req: In(StageCtrlReq())
+    ctrl_req: In(StageCtrlReqSignature())
 
     # Instruction Select Request
     prev_req: In(InstSelectReqSignature())
