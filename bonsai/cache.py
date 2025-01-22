@@ -6,24 +6,6 @@ from amaranth.lib.wiring import In, Out
 from bonsai import config
 
 
-class CacheAccessReqSignature(wiring.Signature):
-    """
-    Cache Access Request
-    """
-
-    def __init__(self):
-        super().__init__(
-            {
-                "addr_in": In(config.ADDR_SHAPE),
-                "data_in": In(config.DATA_SHAPE),
-                "we": In(1),
-                "data_out": Out(config.DATA_SHAPE),
-                "rd_valid": Out(1),
-                "wr_accept": Out(1),
-            }
-        )
-
-
 class FixedMemory(wiring.Component):
     """
     Fixed Memory for Debug and Test

@@ -1,6 +1,8 @@
+from tkinter import NORMAL
 from amaranth import unsigned
-from amaranth.lib import data, wiring
-from amaranth.lib.wiring import In
+import amaranth
+from amaranth.lib import data, wiring, enum
+from amaranth.lib.wiring import In, Out
 
 from regfile import RegData, RegIndex
 import config
@@ -71,6 +73,58 @@ class RegFwdReq(data.Struct):
     index: RegIndex
     # data
     data: RegData
+
+
+class CacheMemoryType(enum.Enum):
+    """
+    キャッシュメモリのアクセス属性
+    """
+
+    # Normal (Storeタイミング任意、順序並び替え許容)
+    BUFFERED = 0
+    # Device (Storeタイミング任意、順序並び替え禁止)
+    BUFFRED_ORDERED = 1
+    # Strongly Ordered (Storeタイミング即時、順序並び替え禁止)
+    UNBUFFERED_ORDERED = 2
+
+
+class CacheOperationType(enum.Enum):
+    """
+    キャッシュアクセス時のキャッシュ取り扱い種別
+    """
+
+    # Write Back (Cache)
+    WRITE_BACK = 0
+    # Write Through (Cache + Memory)
+    WRITE_THROUGH = 1
+    # Non Cached (Memory)
+    NON_CACHED = 2
+
+
+class CacheRequestSignature(wiring.Signature):
+    """
+    キャッシュアクセス要求の信号
+    """
+
+    def __init__(self, addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE):
+        super().__init__(
+            {
+                # Buffer要否、Order要否
+                "mem_type": In(CacheMemoryType),
+                # Write Back, Write Through, Non Cached
+                "op_type": In(CacheOperationType),
+                # アクセスアドレス
+                "addr_in": In(addr_shape),
+                # 書き込みデータ (Read時は無視)
+                "data_in": In(data_shape),
+                # 書き込み要求
+                "data_out": Out(data_shape),
+                # 書き込み受付
+                "we": In(1),
+                # 書き込み受付不可
+                "busy": Out(1),
+            }
+        )
 
 
 class StageCtrlReqSignature(wiring.Signature):
