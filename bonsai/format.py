@@ -75,30 +75,33 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class CacheMemoryType(enum.Enum):
-    """
-    キャッシュメモリのアクセス属性
-    """
-
-    # Normal (Storeタイミング任意、順序並び替え許容)
-    BUFFERED = 0
-    # Device (Storeタイミング任意、順序並び替え禁止)
-    BUFFRED_ORDERED = 1
-    # Strongly Ordered (Storeタイミング即時、順序並び替え禁止)
-    UNBUFFERED_ORDERED = 2
-
-
 class CacheOperationType(enum.Enum):
     """
     キャッシュアクセス時のキャッシュ取り扱い種別
     """
 
+    # Read Cache
+    READ_CACHE = 0
+    # Read Non Cache (Memory)
+    READ_NON_CACHE = 1
+
     # Write Back (Cache)
-    WRITE_BACK = 0
+    WRITE_CACHE = 2
     # Write Through (Cache + Memory)
-    WRITE_THROUGH = 1
+    WRITE_THROUGH = 3
     # Non Cached (Memory)
-    NON_CACHED = 2
+    WRITE_NON_CACHE = 4
+
+    # Cache Line Invalidate
+    MANAGE_INVALIDATE = 5
+    # Cache Line Clean (Invalidate or Write)
+    MANAGE_CLEAN = 6
+    # Cache Line Flush (Clean + Invalidate)
+    MANAGE_FLUSH = 7
+    # Cache Line Zero Fill
+    MANAGE_ZERO_FILL = 8
+    # Cache Line Prefetch
+    MANAGE_PREFETCH = 9
 
 
 class CacheRequestSignature(wiring.Signature):
@@ -109,8 +112,6 @@ class CacheRequestSignature(wiring.Signature):
     def __init__(self, addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE):
         super().__init__(
             {
-                # Buffer要否、Order要否
-                "mem_type": In(CacheMemoryType),
                 # Write Back, Write Through, Non Cached
                 "op_type": In(CacheOperationType),
                 # アクセスアドレス
@@ -119,9 +120,7 @@ class CacheRequestSignature(wiring.Signature):
                 "data_in": In(data_shape),
                 # 書き込み要求
                 "data_out": Out(data_shape),
-                # 書き込み受付
-                "we": In(1),
-                # 書き込み受付不可
+                # 受付不可
                 "busy": Out(1),
             }
         )
