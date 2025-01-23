@@ -15,7 +15,7 @@ class SingleCycleMemory(wiring.Component):
     """
 
     # Memory Access Port
-    req: In(
+    req_in: In(
         MemoryAccessReqSignature(
             addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE
         )
@@ -43,23 +43,23 @@ class SingleCycleMemory(wiring.Component):
         # 直結
         m.d.comb += [
             # rd_port.en.eq(0),# combの場合はConst(1)
-            rd_port.addr.eq(self.req.addr_in),
-            self.req.data_out.eq(rd_port.data),
+            rd_port.addr.eq(self.req_in.addr_in),
+            self.req_in.data_out.eq(rd_port.data),
             # default write port setting
-            wr_port.addr.eq(self.req.addr_in),
-            wr_port.data.eq(self.req.data_in),
+            wr_port.addr.eq(self.req_in.addr_in),
+            wr_port.data.eq(self.req_in.data_in),
         ]
         # default state
         m.d.sync += [
             # not busy
-            self.req.busy.eq(0),
+            self.req_in.busy.eq(0),
             # write disable
             wr_port.en.eq(0),
         ]
 
         with m.FSM(init="READY", domain="sync"):
             with m.State("READY"):
-                with m.Switch(self.req.op_type):
+                with m.Switch(self.req_in.op_type):
                     with m.Case(
                         MemoryOperationType.READ_CACHE,
                         MemoryOperationType.READ_NON_CACHE,
@@ -94,13 +94,13 @@ class SingleCycleMemory(wiring.Component):
                             0,
                             Format(
                                 "Unsupported Operation Type: {:d}",
-                                self.req.op_type,
+                                self.req_in.op_type,
                             ),
                         )
                         m.next = "ABORT"
             with m.State("ABORT"):
                 # keep ABORT state
-                m.d.sync += self.req.busy.eq(1)
+                m.d.sync += self.req_in.busy.eq(1)
 
         return m
 

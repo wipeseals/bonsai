@@ -4,7 +4,7 @@ from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
 from log import Kanata
-from bonsai.format import (
+from format import (
     InstFetchReqSignature,
     InstSelectReqSignature,
     StageCtrlReqSignature,
@@ -37,13 +37,13 @@ class InstSelectStage(wiring.Component):
     """
 
     # Stage Control Request
-    ctrl_req: In(StageCtrlReqSignature())
+    ctrl_req_in: In(StageCtrlReqSignature())
 
     # Instruction Select Request
-    prev_req: In(InstSelectReqSignature())
+    req_in: In(InstSelectReqSignature())
 
     # Instruction Fetch Request
-    next_req: Out(InstFetchReqSignature().flip())
+    req_out: Out(InstFetchReqSignature())
 
     def __init__(
         self,
@@ -80,56 +80,54 @@ class InstSelectStage(wiring.Component):
                 m.d.sync += [Kanata.elapsed_cyc(cycle=1)]
 
         # log (IS stage end)
-        with m.If(self.next_req.en):
+        with m.If(self.req_out.en):
             m.d.sync += Kanata.end_stage(
-                uniq_id=self.next_req.locate.uniq_id, lane_id=self._lane_id, stage="IS"
+                uniq_id=self.req_out.locate.uniq_id, lane_id=self._lane_id, stage="IS"
             )
 
         # default next state
         m.d.sync += [
             # disable current cycle destination
-            self.next_req.en.eq(0),
+            self.req_out.en.eq(0),
             # keep pc
             pc.eq(pc),
-            self.next_req.locate.pc.eq(pc),
+            self.req_out.locate.pc.eq(pc),
             # keep uniq_id
             uniq_id.eq(uniq_id),
-            self.next_req.locate.uniq_id.eq(uniq_id),
+            self.req_out.locate.uniq_id.eq(uniq_id),
             # pass request
-            self.next_req.locate.num_inst_bytes.eq(self.prev_req.num_inst_bytes),
+            self.req_out.locate.num_inst_bytes.eq(self.req_in.num_inst_bytes),
             # always increment cyc
             cyc.eq(cyc + 1),
         ]
 
         # main logic
-        with m.If(~self.prev_req.en):
+        with m.If(~self.req_in.en):
             # No Request
             pass
         with m.Else():
-            with m.If(self.ctrl_req.flush):
+            with m.If(self.ctrl_req_in.flush):
                 # Flush Request
                 pass
             with m.Else():
-                with m.If(self.ctrl_req.stall):
+                with m.If(self.ctrl_req_in.stall):
                     # Stall Request
                     pass
                 with m.Else():
-                    with m.If(self.prev_req.branch_req.en):
+                    with m.If(self.req_in.branch_req.en):
                         # Branch Request
                         m.d.sync += [
                             # enable current cycle destination
-                            self.next_req.en.eq(1),
+                            self.req_out.en.eq(1),
                             # set branch target pc
                             pc.eq(
-                                self.prev_req.branch_req.next_pc
-                                + self.prev_req.num_inst_bytes
+                                self.req_in.branch_req.next_pc
+                                + self.req_in.num_inst_bytes
                             ),
-                            self.next_req.locate.pc.eq(
-                                self.prev_req.branch_req.next_pc
-                            ),
+                            self.req_out.locate.pc.eq(self.req_in.branch_req.next_pc),
                             # increment uniq_id
                             uniq_id.eq(uniq_id + 1),
-                            self.next_req.locate.uniq_id.eq(uniq_id),
+                            self.req_out.locate.uniq_id.eq(uniq_id),
                         ]
                         if PrintFlag.STAGE in self._print_flag:
                             # log (cmd start, IS stage start)
@@ -141,20 +139,20 @@ class InstSelectStage(wiring.Component):
                                 Kanata.label_cmd_is(
                                     uniq_id=uniq_id,
                                     label_type=Kanata.LabelType.ALWAYS,
-                                    pc=self.prev_req.branch_req.next_pc,
+                                    pc=self.req_in.branch_req.next_pc,
                                 ),
                             ]
                     with m.Else():
                         # Increment PC
                         m.d.sync += [
                             # enable current cycle destination
-                            self.next_req.en.eq(1),
+                            self.req_out.en.eq(1),
                             # increment pc
-                            pc.eq(pc + self.prev_req.num_inst_bytes),
-                            self.next_req.locate.pc.eq(pc),
+                            pc.eq(pc + self.req_in.num_inst_bytes),
+                            self.req_out.locate.pc.eq(pc),
                             # increment uniq_id
                             uniq_id.eq(uniq_id + 1),
-                            self.next_req.locate.uniq_id.eq(uniq_id),
+                            self.req_out.locate.uniq_id.eq(uniq_id),
                         ]
                         if PrintFlag.STAGE in self._print_flag:
                             # log (cmd start, IS stage start)

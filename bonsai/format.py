@@ -107,7 +107,7 @@ class MemoryOperationType(enum.Enum):
     MANAGE_PREFETCH = 10
 
 
-class MemoryAccessSignature(wiring.Signature):
+class MemoryAccessReqSignature(wiring.Signature):
     """
     キャッシュアクセス要求の信号
     """
@@ -116,15 +116,15 @@ class MemoryAccessSignature(wiring.Signature):
         super().__init__(
             {
                 # Write Back, Write Through, Non Cached
-                "op_type": In(MemoryOperationType),
+                "op_type": Out(MemoryOperationType),
                 # アクセスアドレス
-                "addr_in": In(addr_shape),
+                "addr_in": Out(addr_shape),
                 # 書き込みデータ (Read時は無視)
-                "data_in": In(data_shape),
+                "data_in": Out(data_shape),
                 # 書き込み要求
-                "data_out": Out(data_shape),
+                "data_out": In(data_shape),
                 # 受付不可
-                "busy": Out(1),
+                "busy": In(1),
             }
         )
 
@@ -138,9 +138,9 @@ class StageCtrlReqSignature(wiring.Signature):
         super().__init__(
             {
                 # Stall Request from previous stage
-                "stall": In(unsigned(1)),
+                "stall": Out(unsigned(1)),
                 # Flush Request from previous stage
-                "flush": In(unsigned(1)),
+                "flush": Out(unsigned(1)),
             }
         )
 
@@ -154,12 +154,12 @@ class InstSelectReqSignature(wiring.Signature):
         super().__init__(
             {
                 # data enable
-                "en": In(unsigned(1)),
+                "en": Out(unsigned(1)),
                 # Branch request
-                "branch_req": In(BranchReq),
+                "branch_req": Out(BranchReq),
                 # num instruction bytes
                 # 1=1byte, 2=2byte, 4=4byte, 8=8byte
-                "num_inst_bytes": In(config.INST_BYTES_SHAPE),
+                "num_inst_bytes": Out(config.INST_BYTES_SHAPE),
             }
         )
 
@@ -173,9 +173,9 @@ class InstFetchReqSignature(wiring.Signature):
         super().__init__(
             {
                 # data enable
-                "en": In(unsigned(1)),
+                "en": Out(unsigned(1)),
                 # Target PC
-                "locate": In(InstLocate),
+                "locate": Out(InstLocate),
             }
         )
 
@@ -189,8 +189,8 @@ class InstDecodeReqSignature(wiring.Signature):
         super().__init__(
             {
                 # data enable
-                "en": In(unsigned(1)),
+                "en": Out(unsigned(1)),
                 # Instruction
-                "inst": In(RawInst),
+                "inst": Out(RawInst),
             }
         )
