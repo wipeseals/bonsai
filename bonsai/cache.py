@@ -44,7 +44,7 @@ class SingleCycleMemory(wiring.Component):
         m.d.comb += [
             # rd_port.en.eq(0),# combの場合はConst(1)
             rd_port.addr.eq(self.req_in.addr_in),
-            self.req_in.data_out.eq(rd_port.data),
+            self.req_in.data_out.eq(rd_port.data),  # W/R同時利用しないので透過不要
             # default write port setting
             wr_port.addr.eq(self.req_in.addr_in),
             wr_port.data.eq(self.req_in.data_in),
