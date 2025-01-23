@@ -75,36 +75,39 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class CacheOperationType(enum.Enum):
+class MemoryOperationType(enum.Enum):
     """
     キャッシュアクセス時のキャッシュ取り扱い種別
     """
 
+    # NO Operation
+    NOP = 0
+
     # Read Cache
-    READ_CACHE = 0
+    READ_CACHE = 1
     # Read Non Cache (Memory)
-    READ_NON_CACHE = 1
+    READ_NON_CACHE = 2
 
     # Write Back (Cache)
-    WRITE_CACHE = 2
+    WRITE_CACHE = 3
     # Write Through (Cache + Memory)
-    WRITE_THROUGH = 3
+    WRITE_THROUGH = 4
     # Non Cached (Memory)
-    WRITE_NON_CACHE = 4
+    WRITE_NON_CACHE = 5
 
     # Cache Line Invalidate
-    MANAGE_INVALIDATE = 5
+    MANAGE_INVALIDATE = 6
     # Cache Line Clean (Invalidate or Write)
-    MANAGE_CLEAN = 6
+    MANAGE_CLEAN = 7
     # Cache Line Flush (Clean + Invalidate)
-    MANAGE_FLUSH = 7
+    MANAGE_FLUSH = 8
     # Cache Line Zero Fill
-    MANAGE_ZERO_FILL = 8
+    MANAGE_ZERO_FILL = 9
     # Cache Line Prefetch
-    MANAGE_PREFETCH = 9
+    MANAGE_PREFETCH = 10
 
 
-class CacheRequestSignature(wiring.Signature):
+class MemoryAccessSignature(wiring.Signature):
     """
     キャッシュアクセス要求の信号
     """
@@ -113,7 +116,7 @@ class CacheRequestSignature(wiring.Signature):
         super().__init__(
             {
                 # Write Back, Write Through, Non Cached
-                "op_type": In(CacheOperationType),
+                "op_type": In(MemoryOperationType),
                 # アクセスアドレス
                 "addr_in": In(addr_shape),
                 # 書き込みデータ (Read時は無視)
