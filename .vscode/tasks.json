@@ -55,5 +55,11 @@
                 "$python"
             ]
         },
+        {
+            "label": "draw diagram from verilog (win)",
+            "type": "shell",
+            "command": "environment.bat && cd dist && yosys -p \"read_verilog -sv ${file}; proc; opt; clean; show -format png -colors 2 -prefix ${fileBasenameNoExtension}\"",
+            "problemMatcher": []
+        }
     ]
 }
