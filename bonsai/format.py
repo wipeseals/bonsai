@@ -49,11 +49,8 @@ class RawInst(data.Struct):
     # Instruction
     inst: config.INST_SHAPE
 
-    # PC (for logging)
+    # PC/Unique ID (for logging)
     locate: InstLocate
-
-    # Unique ID (for logging)
-    uniq_id: config.CMD_UNIQ_ID_SHAPE
 
 
 class BranchReq(data.Struct):
