@@ -95,7 +95,7 @@ class SingleCycleMemory(wiring.Component):
                     with m.Case(
                         MemoryOperationType.MANAGE_CLEAR_ABORT,
                     ):
-                        # Abort Clear
+                        # Abort Clear (この時点では読み出していないのでbusyは解除しない)
                         m.d.sync += [
                             abort_type.eq(AbortType.NONE),
                         ]

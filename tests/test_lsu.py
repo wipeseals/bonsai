@@ -96,13 +96,30 @@ def test_ssm_abort_misaligned(use_strict_assert: bool):
         assert ctx.get(dut.req_in.abort_type) == AbortType.MISALIGNED_MEM_ACCESS.value
 
         # read seq (aborted)
+        read_addr = 0x00000004
         ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.addr_in, read_addr)
+
         aborted_cyc = 3
         for _ in range(aborted_cyc):
-            ctx.set(dut.req_in.addr_in, 0x0)
             await ctx.tick()
             assert ctx.get(dut.req_in.busy) == 1
-            assert ctx.get(dut.req_in.abort_type) == AbortType.MISALIGNED_MEM_ACCESS.value
+            assert (
+                ctx.get(dut.req_in.abort_type) == AbortType.MISALIGNED_MEM_ACCESS.value
+            )
+
+        # abort clear
+        read_addr = 0x00000004
+        ctx.set(dut.req_in.addr_in, read_addr)
+        ctx.set(dut.req_in.op_type, MemoryOperationType.MANAGE_CLEAR_ABORT.value)
+        await ctx.tick()
+        assert ctx.get(dut.req_in.busy) == 1
+
+        # read
+        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        await ctx.tick()
+        assert ctx.get(dut.req_in.busy) == 0
+        assert ctx.get(dut.req_in.data_out) == init_data[1]
 
     if use_strict_assert:
         with pytest.raises(AssertionError) as excinfo:
