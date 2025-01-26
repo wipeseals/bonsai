@@ -30,6 +30,10 @@ class SingleCycleMemory(wiring.Component):
         # 特定データのStorage運用は考えていないので、2^nの形状しか許容しない
         assert util.is_power_of_2(data_shape.width), "Data width must be power of 2"
 
+        # depthの指定がinit_dataのサイズを超えていた場合の対応
+        if len(init_data) > depth:
+            depth = len(init_data)
+
         self._data_shape = data_shape
         self._depth = depth
         self._init_data = init_data
