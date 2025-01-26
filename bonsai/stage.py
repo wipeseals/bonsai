@@ -108,12 +108,6 @@ class InstSelectStage(wiring.Component):
                 # elapsed 1 cycle
                 m.d.sync += [Kanata.elapsed_cyc(cycle=1)]
 
-        # log (IS stage end)
-        with m.If(self.req_out.en):
-            m.d.sync += Kanata.end_stage(
-                uniq_id=self.req_out.locate.uniq_id, lane_id=self._lane_id, stage="IS"
-            )
-
         # default next state
         m.d.sync += [
             # disable current cycle destination
