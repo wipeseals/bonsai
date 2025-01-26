@@ -104,6 +104,28 @@ class MemoryOperationType(enum.Enum):
     # Cache Line Prefetch
     MANAGE_PREFETCH = 10
 
+    def is_read(self):
+        return self in [
+            MemoryOperationType.READ_CACHE,
+            MemoryOperationType.READ_NON_CACHE,
+        ]
+
+    def is_write(self):
+        return self in [
+            MemoryOperationType.WRITE_CACHE,
+            MemoryOperationType.WRITE_THROUGH,
+            MemoryOperationType.WRITE_NON_CACHE,
+        ]
+
+    def is_manage(self):
+        return self in [
+            MemoryOperationType.MANAGE_INVALIDATE,
+            MemoryOperationType.MANAGE_CLEAN,
+            MemoryOperationType.MANAGE_FLUSH,
+            MemoryOperationType.MANAGE_ZERO_FILL,
+            MemoryOperationType.MANAGE_PREFETCH,
+        ]
+
 
 class MemoryAccessReqSignature(wiring.Signature):
     """
