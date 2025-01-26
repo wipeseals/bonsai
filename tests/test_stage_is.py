@@ -226,11 +226,13 @@ def test_is_branch_valid():
     run_sim(f"{test_is_branch_valid.__name__}", dut=dut, testbench=bench)
 
 
-def test_is_branch_misalign_assert():
+@pytest.mark.parametrize("use_strict_assert", [True, False])
+def test_is_branch_to_misalign_addr(use_strict_assert: bool):
     dut = InstSelectStage(
         initial_pc=INITIAL_PC,
         initial_uniq_id=INITIAL_UNIQ_ID,
         lane_id=LANE_ID,
+        use_strict_assert=use_strict_assert,
     )
 
     async def bench(ctx):
@@ -245,26 +247,69 @@ def test_is_branch_misalign_assert():
         pre_cyc = 3
         for cyc in range(pre_cyc):
             await ctx.tick()
-            # check enable
             assert ctx.get(dut.req_out.en) == 1
-            # check pc
             assert (
                 ctx.get(dut.req_out.locate.pc)
                 == INITIAL_PC + config.NUM_INST_BYTE * cyc
             )
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
-        # branch
+        # branch to misaligned address
         branch_pc = 0x2001  # misaligned
         ctx.set(dut.req_in.branch_req.en, 1)
         ctx.set(dut.req_in.branch_req.next_pc, branch_pc)
         await ctx.tick()
-
-        # check enable
         assert ctx.get(dut.req_out.en) == 0
-        # check abort
-        assert ctx.get(dut.abort_type) == AbortType.MISALIGNED_FETCH
+        assert ctx.get(dut.req_out.abort_type) == AbortType.MISALIGNED_FETCH.value
+        assert ctx.get(dut.misaligned_addr) == branch_pc
 
-    with pytest.raises(AssertionError) as excinfo:
-        run_sim(f"{test_is_branch_misalign.__name__}", dut=dut, testbench=bench)
-    assert "Misaligned Access" in str(excinfo.value)
+        # no branch
+        ctx.set(dut.req_in.branch_req.en, 0)
+        ctx.set(dut.req_in.branch_req.next_pc, 0)
+
+        aborted_cyc = 3
+        for cyc in range(aborted_cyc):
+            await ctx.tick()
+            assert ctx.get(dut.req_out.en) == 0
+            assert ctx.get(dut.req_out.abort_type) == AbortType.MISALIGNED_FETCH.value
+            assert ctx.get(dut.misaligned_addr) == branch_pc
+
+        # clear abort
+        ctx.set(dut.ctrl_req_in.clear, 1)
+        await ctx.tick()
+        assert ctx.get(dut.req_out.en) == 0  # まだ状態クリアのみで処理は発生しない
+        assert ctx.get(dut.req_out.abort_type) == AbortType.NONE.value
+        assert ctx.get(dut.misaligned_addr) == 0
+
+        # branch to aligned address
+        branch_pc = 0x2000
+        ctx.set(dut.ctrl_req_in.clear, 0)
+        ctx.set(dut.req_in.branch_req.en, 1)
+        ctx.set(dut.req_in.branch_req.next_pc, branch_pc)
+        await ctx.tick()
+        assert ctx.get(dut.req_out.en) == 1
+        assert ctx.get(dut.req_out.locate.pc) == branch_pc
+        assert (
+            ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
+        ), "uniq_id is not cleared"
+        assert ctx.get(dut.branch_strobe) == 1
+        assert (
+            ctx.get(dut.branch_strobe_src_addr)
+            == INITIAL_PC + config.NUM_INST_BYTE * pre_cyc
+        ), "branch前アドレスは最後のPCなので、Abort前のアドレスが最後となる。割り込みのことを考慮すると妥当"
+        assert ctx.get(dut.branch_strobe_dst_addr) == branch_pc
+
+    if use_strict_assert:
+        with pytest.raises(AssertionError) as excinfo:
+            run_sim(
+                f"{test_is_branch_to_misalign_addr.__name__}_assert",
+                dut=dut,
+                testbench=bench,
+            )
+            assert "Misaligned Access" in str(excinfo.value)
+    else:
+        run_sim(
+            f"{test_is_branch_to_misalign_addr.__name__}_noassert",
+            dut=dut,
+            testbench=bench,
+        )
