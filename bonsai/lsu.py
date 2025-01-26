@@ -106,7 +106,8 @@ class SingleCycleMemory(wiring.Component):
                 # misaligned data accessは現状非サポート
                 with m.If(is_misaligned):
                     m.d.sync += [
-                        abort_type.eq(AbortType.MISALIGNED_FETCH),
+                        self.req_in.busy.eq(1),
+                        abort_type.eq(AbortType.MISALIGNED_MEM_ACCESS),
                     ]
                     m.next = "ABORT"
 
@@ -153,6 +154,7 @@ class SingleCycleMemory(wiring.Component):
                         with m.Default():
                             # 未実装
                             m.d.sync += [
+                                self.req_in.busy.eq(1),
                                 abort_type.eq(AbortType.ILLEGAL_MEM_OP),
                             ]
                             m.next = "ABORT"

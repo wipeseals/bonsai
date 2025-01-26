@@ -25,6 +25,9 @@ class AbortType(enum.Enum):
     # Illegal Memory Operation
     ILLEGAL_MEM_OP = 2
 
+    # Misaligned Memory Access
+    MISALIGNED_MEM_ACCESS = 3
+
 
 class InstLocate(data.Struct):
     """
