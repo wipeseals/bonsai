@@ -33,7 +33,7 @@ def test_is_increment(test_cycles: int = 30):
             # check pc
             assert (
                 ctx.get(dut.req_out.locate.pc)
-                == INITIAL_PC + config.NUM_INST_BYTE * cyc
+                == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
             # check branch
@@ -67,7 +67,7 @@ def test_is_stall(stall_cyc: int):
             # check pc
             assert (
                 ctx.get(dut.req_out.locate.pc)
-                == INITIAL_PC + config.NUM_INST_BYTE * cyc
+                == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
@@ -89,7 +89,7 @@ def test_is_stall(stall_cyc: int):
             # check pc
             assert ctx.get(
                 dut.req_out.locate.pc
-            ) == INITIAL_PC + config.NUM_INST_BYTE * (pre_cyc + cyc)
+            ) == INITIAL_PC + config.INST_BYTE_WIDTH * (pre_cyc + cyc)
             assert (
                 ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc + cyc
             )
@@ -124,7 +124,7 @@ def test_is_flush():
             # check pc
             assert (
                 ctx.get(dut.req_out.locate.pc)
-                == INITIAL_PC + config.NUM_INST_BYTE * cyc
+                == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
@@ -146,7 +146,7 @@ def test_is_flush():
             # check pc (keep pc/uniq_id)
             assert ctx.get(
                 dut.req_out.locate.pc
-            ) == INITIAL_PC + config.NUM_INST_BYTE * (cyc + pre_cyc)
+            ) == INITIAL_PC + config.INST_BYTE_WIDTH * (cyc + pre_cyc)
             assert (
                 ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc + pre_cyc
             )
@@ -181,7 +181,7 @@ def test_is_branch_valid():
             # check pc
             assert (
                 ctx.get(dut.req_out.locate.pc)
-                == INITIAL_PC + config.NUM_INST_BYTE * cyc
+                == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
@@ -200,7 +200,7 @@ def test_is_branch_valid():
         assert ctx.get(dut.branch_strobe) == 1
         assert (
             ctx.get(dut.branch_strobe_src_addr)
-            == INITIAL_PC + config.NUM_INST_BYTE * pre_cyc
+            == INITIAL_PC + config.INST_BYTE_WIDTH * pre_cyc
         )
         assert ctx.get(dut.branch_strobe_dst_addr) == branch_pc
 
@@ -214,7 +214,7 @@ def test_is_branch_valid():
             # check pc
             assert ctx.get(
                 dut.req_out.locate.pc
-            ) == branch_pc + config.NUM_INST_BYTE * (cyc + 1)  # branch + post_cyc
+            ) == branch_pc + config.INST_BYTE_WIDTH * (cyc + 1)  # branch + post_cyc
             assert (
                 ctx.get(dut.req_out.locate.uniq_id)
                 == INITIAL_UNIQ_ID + pre_cyc + 1 + cyc  # pre_cyc + branch + post_cyc
@@ -250,7 +250,7 @@ def test_is_branch_to_misalign_addr(use_strict_assert: bool):
             assert ctx.get(dut.req_out.en) == 1
             assert (
                 ctx.get(dut.req_out.locate.pc)
-                == INITIAL_PC + config.NUM_INST_BYTE * cyc
+                == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
@@ -295,7 +295,7 @@ def test_is_branch_to_misalign_addr(use_strict_assert: bool):
         assert ctx.get(dut.branch_strobe) == 1
         assert (
             ctx.get(dut.branch_strobe_src_addr)
-            == INITIAL_PC + config.NUM_INST_BYTE * pre_cyc
+            == INITIAL_PC + config.INST_BYTE_WIDTH * pre_cyc
         ), "branch前アドレスは最後のPCなので、Abort前のアドレスが最後となる。割り込みのことを考慮すると妥当"
         assert ctx.get(dut.branch_strobe_dst_addr) == branch_pc
 

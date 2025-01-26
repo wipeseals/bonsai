@@ -188,7 +188,7 @@ class InstSelectStage(wiring.Component):
                                     # set branch target pc
                                     pc.eq(
                                         self.req_in.branch_req.next_pc
-                                        + config.NUM_INST_BYTE
+                                        + config.INST_BYTE_WIDTH
                                     ),
                                     self.req_out.locate.pc.eq(
                                         self.req_in.branch_req.next_pc
@@ -224,7 +224,7 @@ class InstSelectStage(wiring.Component):
                                 # enable current cycle destination
                                 self.req_out.en.eq(1),
                                 # increment pc
-                                pc.eq(pc + config.NUM_INST_BYTE),
+                                pc.eq(pc + config.INST_BYTE_WIDTH),
                                 self.req_out.locate.pc.eq(pc),
                                 # increment uniq_id
                                 uniq_id.eq(uniq_id + 1),

@@ -34,22 +34,22 @@ USE_STRICT_ASSERT: bool = True
 # CPU Register and Memory Configuration (values)
 
 # Register width (RV32 or RV64 or RV128)
-REG_WIDTH: int = 32
+REG_BIT_WIDTH: int = 32
 
 # Memory address width (RV32 or RV64 or RV128)
-ADDR_WIDTH: int = 32
+ADDR_BIT_WIDTH: int = 32
 
 # Memory data width
-DATA_WIDTH: int = 32
+DATA_BIT_WIDTH: int = 32
 
 # Instruction width (reserved for future use)
-INST_WIDTH: int = 32
+INST_BIT_WIDTH: int = 32
 
 # Instruction byte width (Compress=2byte, RV32=4byte, RV64=8byte)
-NUM_INST_BYTE: int = util.byte_width(INST_WIDTH)
+INST_BYTE_WIDTH: int = util.byte_width(INST_BIT_WIDTH)
 
 # Bitshift for PC to get the instruction address (Compress=1, RV32=2, RV64=3)
-INST_ADDR_OFFSET_BITS: int = exact_log2(NUM_INST_BYTE)
+INST_ADDR_OFFSET_BITS: int = exact_log2(INST_BYTE_WIDTH)
 
 # Number of general purpose registers
 NUM_GPR: int = 32
@@ -64,49 +64,49 @@ NUM_REGFILE_INDEX: int = NUM_GPR + NUM_FPR
 REFGILE_INDEX_WIDTH: int = exact_log2(NUM_REGFILE_INDEX)
 
 # opcode width
-OPCODE_WIDTH: int = 7
+OPCODE_BIT_WIDTH: int = 7
 
 # cpu cycle counter width
-CYCLE_COUNTER_WIDTH: int = 64
+CYCLE_COUNTER_BIT_WIDTH: int = 64
 
 # cmd unique id width
-CMD_UNIQ_ID_WIDTH: int = 32
+CMD_UNIQ_ID_BIT_WIDTH: int = 32
 
 #####################################################
 # CPU Register and Memory Configuration (shapes)
 
 # Register shape
-REG_SHAPE: Shape = unsigned(REG_WIDTH)
+REG_SHAPE: Shape = unsigned(REG_BIT_WIDTH)
 
 # Register shape (unsigned)
-INST_BYTES_SHAPE: Shape = unsigned(NUM_INST_BYTE)
+INST_BYTES_SHAPE: Shape = unsigned(INST_BYTE_WIDTH)
 
 # Register shape (signed)
-SREG_SHAPE_SIGNED: Shape = signed(REG_WIDTH)
+SREG_SHAPE_SIGNED: Shape = signed(REG_BIT_WIDTH)
 
 # Memory address shape
-ADDR_SHAPE: Shape = unsigned(ADDR_WIDTH)
+ADDR_SHAPE: Shape = unsigned(ADDR_BIT_WIDTH)
 
 # Memory data shape
-DATA_SHAPE: Shape = unsigned(DATA_WIDTH)
+DATA_SHAPE: Shape = unsigned(DATA_BIT_WIDTH)
 
 # Instruction shape
-INST_SHAPE: Shape = unsigned(INST_WIDTH)
+INST_SHAPE: Shape = unsigned(INST_BIT_WIDTH)
 
 # general purpose register shape
-GPR_SHAPE: Shape = unsigned(REG_WIDTH)
+GPR_SHAPE: Shape = unsigned(REG_BIT_WIDTH)
 
 # register index shape (gpr + fpr)
 REGFILE_INDEX_SHAPE: Shape = unsigned(REFGILE_INDEX_WIDTH)
 
 # opcode shape
-OPCODE_SHAPE: Shape = unsigned(OPCODE_WIDTH)
+OPCODE_SHAPE: Shape = unsigned(OPCODE_BIT_WIDTH)
 
 # cpu cycle counter shape
-CYCLE_COUNTER_SHAPE: Shape = unsigned(CYCLE_COUNTER_WIDTH)
+CYCLE_COUNTER_SHAPE: Shape = unsigned(CYCLE_COUNTER_BIT_WIDTH)
 
 # cmd unique id shape
-CMD_UNIQ_ID_SHAPE: Shape = unsigned(CMD_UNIQ_ID_WIDTH)
+CMD_UNIQ_ID_SHAPE: Shape = unsigned(CMD_UNIQ_ID_BIT_WIDTH)
 
 #####################################################
 # L1 Cache Configuration

@@ -25,7 +25,7 @@ class SingleCycleMemory(wiring.Component):
     def __init__(
         self,
         data_shape: Shape = config.DATA_SHAPE,
-        depth: int = 4096 // config.DATA_WIDTH,
+        depth: int = 4096 // config.DATA_BIT_WIDTH,
         init_data: List[int] = [],
         use_strict_assert: bool = config.USE_STRICT_ASSERT,
     ):
