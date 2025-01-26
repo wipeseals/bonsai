@@ -6,7 +6,7 @@ from tests.testutil import run_sim
 import pytest
 
 INITIAL_PC: int = 0x1000
-INITIAL_UNIQ_ID: int = 1000
+INITIAL_UNIQ_ID: int = 0
 LANE_ID: int = 0
 
 
