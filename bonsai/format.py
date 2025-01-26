@@ -1,6 +1,4 @@
-from tkinter import NORMAL
 from amaranth import unsigned
-import amaranth
 from amaranth.lib import data, wiring, enum
 from amaranth.lib.wiring import In, Out
 
