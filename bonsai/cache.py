@@ -27,6 +27,7 @@ class SingleCycleMemory(wiring.Component):
         data_shape: Shape = config.DATA_SHAPE,
         depth: int = 4096 // config.DATA_WIDTH,
         init_data: List[int] = [],
+        use_strict_assert: bool = config.USE_STRICT_ASSERT,
     ):
         # 特定データのStorage運用は考えていないので、2^nの形状しか許容しない
         assert util.is_power_of_2(data_shape.width), "Data width must be power of 2"
@@ -38,6 +39,7 @@ class SingleCycleMemory(wiring.Component):
         self._data_shape = data_shape
         self._depth = depth
         self._init_data = init_data
+        self._use_strict_assert = use_strict_assert
         # ミスアライメント検出用
         self._addr_offset_bits = exact_log2(data_shape.width)
         super().__init__()
@@ -104,12 +106,18 @@ class SingleCycleMemory(wiring.Component):
                 with m.If(is_misaligned):
                     m.d.sync += [
                         abort_type.eq(AbortType.MISALIGNED_FETCH),
-                        Assert(
-                            0,
-                            Format("Misaligned Access: {:016x}", self.req_in.addr_in),
-                        ),
                     ]
                     m.next = "ABORT"
+
+                    if self._use_strict_assert:
+                        m.d.sync += [
+                            Assert(
+                                0,
+                                Format(
+                                    "Misaligned Access: {:016x}", self.req_in.addr_in
+                                ),
+                            ),
+                        ]
                 with m.Else():
                     # Read/Write Enable
                     with m.Switch(self.req_in.op_type):
@@ -145,15 +153,19 @@ class SingleCycleMemory(wiring.Component):
                             # 未実装
                             m.d.sync += [
                                 abort_type.eq(AbortType.ILLEGAL_MEM_OP),
-                                Assert(
-                                    0,
-                                    Format(
-                                        "Unsupported Operation Type: {:d}",
-                                        self.req_in.op_type,
-                                    ),
-                                ),
                             ]
                             m.next = "ABORT"
+
+                            if self._use_strict_assert:
+                                m.d.sync += [
+                                    Assert(
+                                        0,
+                                        Format(
+                                            "Unsupported Operation Type: {:d}",
+                                            self.req_in.op_type,
+                                        ),
+                                    ),
+                                ]
 
         return m
 

@@ -57,19 +57,22 @@ class InstSelectStage(wiring.Component):
     branch_strobe_src_addr: Out(config.ADDR_SHAPE)
     branch_strobe_dst_addr: Out(config.ADDR_SHAPE)
 
+    # misaligned access address (for debug)
+    misaligned_addr: Out(config.ADDR_SHAPE)
+
     def __init__(
         self,
         initial_pc: int = 0,
         initial_uniq_id: int = 0,
         lane_id: int = 0,
         print_flag: PrintFlag = PrintFlag.all(),
-        num_inst_bytes: int = config.NUM_INST_BYTE,
+        use_strict_assert: bool = config.USE_STRICT_ASSERT,
     ):
         self._initial_pc = initial_pc
         self._initial_uniq_id = initial_uniq_id
         self._lane_id = lane_id
         self._print_flag = print_flag
-        self._num_inst_bytes = num_inst_bytes
+        self._use_strict_assert = use_strict_assert
         super().__init__()
 
     def elaborate(self, platform):
@@ -80,10 +83,13 @@ class InstSelectStage(wiring.Component):
         uniq_id = Signal(config.CMD_UNIQ_ID_SHAPE, init=self._initial_uniq_id)
         cyc = Signal(config.CYCLE_COUNTER_SHAPE, init=0)
         abort_type = Signal(AbortType, init=AbortType.NONE)
+        misaligned_addr = Signal(config.ADDR_SHAPE, init=0)
 
-        # assign
+        # 直結
         m.d.comb += [
             self.global_cyc.eq(cyc),
+            self.req_out.abort_type.eq(abort_type),
+            self.misaligned_addr.eq(misaligned_addr),
         ]
 
         # log (initial header)
@@ -109,8 +115,6 @@ class InstSelectStage(wiring.Component):
         m.d.sync += [
             # disable current cycle destination
             self.req_out.en.eq(0),
-            # default abort
-            self.req_out.abort_type.eq(abort_type),
             # keep pc
             pc.eq(pc),
             self.req_out.locate.pc.eq(pc),
@@ -119,7 +123,7 @@ class InstSelectStage(wiring.Component):
             self.req_out.locate.uniq_id.eq(uniq_id),
             # always increment cyc
             cyc.eq(cyc + 1),
-            # default branch strobe disable
+            # default branch strobe disable (for debug)
             self.branch_strobe.eq(0),
             self.branch_strobe_src_addr.eq(0),
         ]
@@ -131,6 +135,7 @@ class InstSelectStage(wiring.Component):
                     # Abort Clear
                     m.d.sync += [
                         abort_type.eq(AbortType.NONE),
+                        misaligned_addr.eq(0),
                     ]
                     m.next = "READY"
             with m.State("READY"):
@@ -161,15 +166,20 @@ class InstSelectStage(wiring.Component):
                                 # Misaligned Access
                                 m.d.sync += [
                                     abort_type.eq(AbortType.MISALIGNED_FETCH),
-                                    Assert(
-                                        0,
-                                        Format(
-                                            "Misaligned Access: {:016x}",
-                                            self.req_in.branch_req.next_pc,
-                                        ),
-                                    ),
+                                    misaligned_addr.eq(self.req_in.branch_req.next_pc),
                                 ]
                                 m.next = "ABORT"
+
+                                if self._use_strict_assert:
+                                    m.d.sync += [
+                                        Assert(
+                                            0,
+                                            Format(
+                                                "Misaligned Access: {:016x}",
+                                                self.req_in.branch_req.next_pc,
+                                            ),
+                                        ),
+                                    ]
                             with m.Else():
                                 # Valid Branch Request
                                 m.d.sync += [
@@ -178,7 +188,7 @@ class InstSelectStage(wiring.Component):
                                     # set branch target pc
                                     pc.eq(
                                         self.req_in.branch_req.next_pc
-                                        + self._num_inst_bytes
+                                        + config.NUM_INST_BYTE
                                     ),
                                     self.req_out.locate.pc.eq(
                                         self.req_in.branch_req.next_pc
@@ -214,7 +224,7 @@ class InstSelectStage(wiring.Component):
                                 # enable current cycle destination
                                 self.req_out.en.eq(1),
                                 # increment pc
-                                pc.eq(pc + self._num_inst_bytes),
+                                pc.eq(pc + config.NUM_INST_BYTE),
                                 self.req_out.locate.pc.eq(pc),
                                 # increment uniq_id
                                 uniq_id.eq(uniq_id + 1),

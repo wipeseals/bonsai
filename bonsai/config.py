@@ -23,6 +23,12 @@ def dist_file_path(file_name: str) -> str:
 
 
 #####################################################
+# Build Configuration
+
+# 厳格(正常系以外を一旦止める)Assertを有効にする
+USE_STRICT_ASSERT: bool = True
+
+#####################################################
 # CPU Register and Memory Configuration (values)
 
 # Register width (RV32 or RV64 or RV128)
