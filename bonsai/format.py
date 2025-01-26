@@ -1,9 +1,29 @@
+from enum import auto
+from typing import Optional
 from amaranth import unsigned
+import amaranth
 from amaranth.lib import data, wiring, enum
 from amaranth.lib.wiring import In, Out
+from amaranth.utils import log2_int
 
 from regfile import RegData, RegIndex
+import util
 import config
+
+
+class AbortType(enum.Enum):
+    """
+    Pipeline Abort Type
+    """
+
+    # No Exception
+    NONE = 0
+
+    # Misaligned Fetch
+    MISALIGNED_FETCH = 1
+
+    # Illegal Memory Operation
+    ILLEGAL_MEM_OP = 2
 
 
 class InstLocate(data.Struct):
@@ -16,9 +36,6 @@ class InstLocate(data.Struct):
 
     # Unique ID (for logging)
     uniq_id: config.CMD_UNIQ_ID_SHAPE
-
-    # Number of instruction bytes
-    num_inst_bytes: config.INST_BYTES_SHAPE
 
 
 class RawInst(data.Struct):
@@ -93,16 +110,18 @@ class MemoryOperationType(enum.Enum):
     # Non Cached (Memory)
     WRITE_NON_CACHE = 5
 
+    # Clear Abort Status
+    MANAGE_CLEAR_ABORT = 6
     # Cache Line Invalidate
-    MANAGE_INVALIDATE = 6
+    MANAGE_INVALIDATE = 7
     # Cache Line Clean (Invalidate or Write)
-    MANAGE_CLEAN = 7
+    MANAGE_CLEAN = 8
     # Cache Line Flush (Clean + Invalidate)
-    MANAGE_FLUSH = 8
+    MANAGE_FLUSH = 9
     # Cache Line Zero Fill
-    MANAGE_ZERO_FILL = 9
+    MANAGE_ZERO_FILL = 10
     # Cache Line Prefetch
-    MANAGE_PREFETCH = 10
+    MANAGE_PREFETCH = 11
 
 
 class MemoryAccessReqSignature(wiring.Signature):
@@ -111,6 +130,9 @@ class MemoryAccessReqSignature(wiring.Signature):
     """
 
     def __init__(self, addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE):
+        # misaligned data accessは現状非サポート
+        assert util.is_power_of_2(data_shape.width), "Data width must be power of 2"
+
         super().__init__(
             {
                 # Write Back, Write Through, Non Cached
@@ -123,6 +145,8 @@ class MemoryAccessReqSignature(wiring.Signature):
                 "data_out": In(data_shape),
                 # 受付不可
                 "busy": In(1),
+                # 例外発生時のステータス
+                "abort_type": In(AbortType),
             }
         )
 
@@ -135,10 +159,12 @@ class StageCtrlReqSignature(wiring.Signature):
     def __init__(self):
         super().__init__(
             {
-                # Stall Request from previous stage
+                # 本cycの処理停止が必要なときに1
                 "stall": Out(unsigned(1)),
-                # Flush Request from previous stage
+                # 次段へのデータを破棄かつ本cycの処理停止が必要なときに1
                 "flush": Out(unsigned(1)),
+                # Abortして処理停止したStageのAbort状態解除が必要なときに1。clear解除まではstallが継続
+                "clear": Out(unsigned(1)),
             }
         )
 
@@ -155,9 +181,6 @@ class InstSelectReqSignature(wiring.Signature):
                 "en": Out(unsigned(1)),
                 # Branch request
                 "branch_req": Out(BranchReq),
-                # num instruction bytes
-                # 1=1byte, 2=2byte, 4=4byte, 8=8byte
-                "num_inst_bytes": Out(config.INST_BYTES_SHAPE),
             }
         )
 
@@ -174,6 +197,8 @@ class InstFetchReqSignature(wiring.Signature):
                 "en": Out(unsigned(1)),
                 # Target PC
                 "locate": Out(InstLocate),
+                # Abort
+                "abort": Out(AbortType),
             }
         )
 
@@ -190,5 +215,7 @@ class InstDecodeReqSignature(wiring.Signature):
                 "en": Out(unsigned(1)),
                 # Instruction
                 "inst": Out(RawInst),
+                # Abort
+                "abort": Out(AbortType),
             }
         )
