@@ -6,8 +6,11 @@ from amaranth.lib.wiring import In, Out
 from log import Kanata
 from format import (
     AbortType,
+    InstDecodeReqSignature,
     InstFetchReqSignature,
     InstSelectReqSignature,
+    MemoryAccessReqSignature,
+    MemoryOperationType,
     StageCtrlReqSignature,
 )
 import config
@@ -248,9 +251,100 @@ class InstSelectStage(wiring.Component):
         return m
 
 
+class InstFetchStage(wiring.Component):
+    """
+    Instruction Fetch Stage
+    """
+
+    # Stage Control Request
+    ctrl_req_in: In(StageCtrlReqSignature())
+
+    # Instruction Fetch Request
+    req_in: In(InstFetchReqSignature())
+
+    # Instruction Decode Request
+    req_out: Out(InstDecodeReqSignature())
+
+    # Memory Access Port
+    mem_req_out: Out(MemoryAccessReqSignature())
+
+    def __init__(self, lane_id: int = 0):
+        self._lane_id = lane_id
+        super().__init__()
+
+    def elaborate(self, platform):
+        m = Module()
+
+        # Abort状態
+        abort_type = Signal(AbortType, init=AbortType.NONE)
+        is_aborted = abort_type != AbortType.NONE
+
+        # Read Access制御。op_typeの変更でRead/Nanageを切り替える
+        op_type = Signal(MemoryOperationType, init=MemoryOperationType.READ_CACHE)
+        data_in = Signal(config.DATA_SHAPE, init=0)
+        m.d.comb += [
+            # 読み出しOperation
+            self.mem_req_out.op_type.eq(op_type),
+            self.mem_req_out.addr_in.eq(self.req_in.locate.pc),
+            # Manage用にdata_inを設定
+            self.mem_req_out.data_in.eq(data_in),
+        ]
+        # 有効なデータの条件
+        # 要求がValidでstall/flush/clear中ではなくReadを投げていて、MemoryがBusyでない
+        req_valid = (
+            (~is_aborted)
+            & (self.req_in.en)
+            & (self.ctrl_req_in.flush == 0)
+            & (self.ctrl_req_in.stall == 0)
+            & (self.ctrl_req_in.clear == 0)
+        )
+        read_req_valid = (req_valid) & (op_type == MemoryOperationType.READ_CACHE)
+        read_done = (read_req_valid) & (self.mem_req_out.busy == 0)
+        read_data = self.mem_req_out.data_out
+
+        # 出力直結
+        m.d.comb += [
+            # out: Disable/Enable
+            self.req_out.en.eq(read_done),
+            # out: Read Data & Req引用
+            self.req_out.inst.eq(read_data),
+            self.req_out.inst.locate.eq(self.req_in.locate),
+            # out: Abort Type
+            self.req_out.abort_type.eq(abort_type),
+        ]
+
+        # TODO: Abort/Manage時の対応
+        with m.FSM(init="READY", domain="sync"):
+            with m.State("ABORT"):
+                # TODO: implement
+                pass
+            with m.State("MANAGE"):
+                # TODO: implement
+                pass
+            with m.State("READY"):
+                with m.If(~self.req_in.en):
+                    # No Request
+                    pass
+                with m.Else():
+                    with m.If(
+                        self.ctrl_req_in.flush
+                        | self.ctrl_req_in.stall
+                        | self.ctrl_req_in.clear
+                    ):
+                        # Flush/Stall/Clear Request時は待機
+                        pass
+                    with m.Else():
+                        # Main Logic
+                        # TODO: implement
+                        pass
+                pass
+        return m
+
+
 if __name__ == "__main__":
     stages = [
         InstSelectStage(),
+        InstFetchStage(),
     ]
     for stage in stages:
         util.export_verilog_file(stage, f"{stage.__class__.__name__}")
