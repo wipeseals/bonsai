@@ -2,8 +2,6 @@ import os
 from amaranth import Shape, signed, unsigned
 from amaranth.utils import exact_log2
 
-from bonsai import util
-
 # NOTE: dataclassで撒いていたが、Variable Annotation での定義時に参照できず相性が悪いのでglobalに移動している
 #       Componentのsuper().__init__()で定義しても良かったが、あまりきれいではなかったので一旦保留している
 
@@ -46,7 +44,7 @@ DATA_BIT_WIDTH: int = 32
 INST_BIT_WIDTH: int = 32
 
 # Instruction byte width (Compress=2byte, RV32=4byte, RV64=8byte)
-INST_BYTE_WIDTH: int = util.byte_width(INST_BIT_WIDTH)
+INST_BYTE_WIDTH: int = INST_BIT_WIDTH // 8
 
 # Bitshift for PC to get the instruction address (Compress=1, RV32=2, RV64=3)
 INST_ADDR_OFFSET_BITS: int = exact_log2(INST_BYTE_WIDTH)
