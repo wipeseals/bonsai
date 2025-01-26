@@ -56,7 +56,7 @@ class SingleCycleMemory(wiring.Component):
         byte_width = util.byte_width(self._data_shape.width)
         req_in_mem_idx = self.req_in.addr_in >> byte_width
         # misaligned data accessは現状非サポート
-        is_missaligned = self.req_in.addr_in.bit_select(0, exact_log2(self)) != 0
+        is_misaligned = self.req_in.addr_in.bit_select(0, exact_log2(self)) != 0
 
         # Abort
         # Abort要因は制御元stageで使用するので返すが、勝手に再開できないようにAbort状態は継続
@@ -102,7 +102,7 @@ class SingleCycleMemory(wiring.Component):
                         pass
             with m.State("READY"):
                 # misaligned data accessは現状非サポート
-                with m.If(is_missaligned):
+                with m.If(is_misaligned):
                     m.d.sync += [
                         abort_type.eq(AbortType.MISALIGNED_FETCH),
                         Assert(

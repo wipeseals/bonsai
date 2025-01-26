@@ -151,13 +151,13 @@ class InstSelectStage(wiring.Component):
                             # Illegal Branch Request
                             # incrementはconfig。NUM_INST_BYTEで行っているので、ミスアライメントが起きる可能性はここ
 
-                            is_missaligned = (
+                            is_misaligned = (
                                 self.req_in.branch_req.next_pc.bit_select(
                                     0, config.INST_ADDR_OFFSET_BITS
                                 )
                                 != 0
                             )
-                            with m.If(is_missaligned):
+                            with m.If(is_misaligned):
                                 # Misaligned Access
                                 m.d.sync += [
                                     abort_type.eq(AbortType.MISALIGNED_FETCH),
