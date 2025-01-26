@@ -41,7 +41,7 @@ INST_WIDTH: int = 32
 NUM_INST_BYTE: int = INST_WIDTH // 8
 
 # Bitshift for PC to get the instruction address (Compress=1, RV32=2, RV64=3)
-INST_ADDR_SHIFT: int = exact_log2(NUM_INST_BYTE)
+INST_ADDR_OFFSET_BITS: int = exact_log2(NUM_INST_BYTE)
 
 # Number of general purpose registers
 NUM_GPR: int = 32

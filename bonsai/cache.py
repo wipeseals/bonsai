@@ -3,6 +3,7 @@ from amaranth import Assert, Format, Module, Shape, Signal
 from amaranth.lib import wiring, memory
 from amaranth.lib.memory import WritePort, ReadPort
 from amaranth.lib.wiring import In
+from amaranth.utils import exact_log2
 
 import config
 import util
@@ -37,6 +38,8 @@ class SingleCycleMemory(wiring.Component):
         self._data_shape = data_shape
         self._depth = depth
         self._init_data = init_data
+        # ミスアライメント検出用
+        self._addr_offset_bits = exact_log2(data_shape.width)
         super().__init__()
 
     def elaborate(self, platform):
@@ -53,7 +56,7 @@ class SingleCycleMemory(wiring.Component):
         byte_width = util.byte_width(self._data_shape.width)
         req_in_mem_idx = self.req_in.addr_in >> byte_width
         # misaligned data accessは現状非サポート
-        is_missaligned = self.req_in.addr_in.bit_select(0, byte_width * 8 - 1) != 0
+        is_missaligned = self.req_in.addr_in.bit_select(0, exact_log2(self)) != 0
 
         # Abort
         # Abort要因は制御元stageで使用するので返すが、勝手に再開できないようにAbort状態は継続
