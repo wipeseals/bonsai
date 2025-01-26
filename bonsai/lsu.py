@@ -1,5 +1,5 @@
 from typing import List
-from amaranth import Assert, Format, Module, Shape, Signal
+from amaranth import Assert, Format, Module, Shape, Signal, unsigned
 from amaranth.lib import wiring, memory
 from amaranth.lib.memory import WritePort, ReadPort
 from amaranth.lib.wiring import In
@@ -64,6 +64,20 @@ class SingleCycleMemory(wiring.Component):
         # Abort要因は制御元stageで使用するので返すが、勝手に再開できないようにAbort状態は継続
         abort_type = Signal(AbortType, init=AbortType.NONE)
 
+        # Write Enable
+        # AbortしていないかつWrite要求の場合のみ許可。1cycで済むのでbusy不要。wrenは遅延させたくないのでcomb
+        write_en = Signal(unsigned(1), init=0)
+        with m.If(abort_type == AbortType.NONE):
+            with m.Switch(self.req_in.op_type):
+                with m.Case(
+                    MemoryOperationType.WRITE_CACHE,
+                    MemoryOperationType.WRITE_THROUGH,
+                    MemoryOperationType.WRITE_NON_CACHE,
+                ):
+                    m.d.comb += write_en.eq(1)
+                with m.Default():
+                    m.d.comb += write_en.eq(0)
+
         # 直結
         m.d.comb += [
             # rd_port.en.eq(0),# combの場合はConst(1)
@@ -74,13 +88,13 @@ class SingleCycleMemory(wiring.Component):
             wr_port.data.eq(self.req_in.data_in),
             # default abort
             self.req_in.abort_type.eq(abort_type),
+            # write enable
+            wr_port.en.eq(write_en),
         ]
         # default state
         m.d.sync += [
             # not busy
             self.req_in.busy.eq(0),
-            # write disable
-            wr_port.en.eq(0),
         ]
 
         with m.FSM(init="READY", domain="sync"):
@@ -120,55 +134,6 @@ class SingleCycleMemory(wiring.Component):
                                 ),
                             ),
                         ]
-                with m.Else():
-                    # Read/Write Enable
-                    with m.Switch(self.req_in.op_type):
-                        with m.Case(
-                            MemoryOperationType.READ_CACHE,
-                            MemoryOperationType.READ_NON_CACHE,
-                        ):
-                            # NOP (Read Always Enable)
-                            pass
-                        with m.Case(
-                            MemoryOperationType.WRITE_CACHE,
-                            MemoryOperationType.WRITE_THROUGH,
-                            MemoryOperationType.WRITE_NON_CACHE,
-                        ):
-                            # Write Enable
-                            m.d.sync += [
-                                wr_port.en.eq(1),
-                            ]
-                            pass
-                        with m.Case(MemoryOperationType.NOP):
-                            # NOP. keep READY state
-                            pass
-                        with m.Case(
-                            MemoryOperationType.MANAGE_INVALIDATE,
-                            MemoryOperationType.MANAGE_CLEAN,
-                            MemoryOperationType.MANAGE_FLUSH,
-                            MemoryOperationType.MANAGE_ZERO_FILL,
-                            MemoryOperationType.MANAGE_PREFETCH,
-                        ):
-                            # Cache Management対応不要。NOPと同様
-                            pass
-                        with m.Default():
-                            # 未実装
-                            m.d.sync += [
-                                self.req_in.busy.eq(1),
-                                abort_type.eq(AbortType.ILLEGAL_MEM_OP),
-                            ]
-                            m.next = "ABORT"
-
-                            if self._use_strict_assert:
-                                m.d.sync += [
-                                    Assert(
-                                        0,
-                                        Format(
-                                            "Unsupported Operation Type: {:d}",
-                                            self.req_in.op_type,
-                                        ),
-                                    ),
-                                ]
 
         return m
 
