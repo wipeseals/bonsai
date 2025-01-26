@@ -57,23 +57,50 @@ class SingleCycleMemory(wiring.Component):
             wr_port.en.eq(0),
         ]
 
-        with m.FSM(init="READY, domain='sync'"):
+        with m.FSM(init="READY", domain="sync"):
             with m.State("READY"):
-                with m.If(self.req_in.op_type.is_read()):
-                    # NOP (Read Always Enable)
-                    pass
-                with m.Elif(self.req_in.op_type.is_write()):
-                    # Write Enable
-                    m.d.sync += [
-                        wr_port.en.eq(1),
-                    ]
-                    pass
-                with m.Elif(self.req_in.op_type.is_manage()):
-                    # Cache Management対応不要。NOPと同様
-                    pass
-                with m.Else():
-                    # NOP
-                    pass
+                with m.Switch(self.req_in.op_type):
+                    with m.Case(
+                        MemoryOperationType.READ_CACHE,
+                        MemoryOperationType.READ_NON_CACHE,
+                    ):
+                        # NOP (Read Always Enable)
+                        pass
+                    with m.Case(
+                        MemoryOperationType.WRITE_CACHE,
+                        MemoryOperationType.WRITE_THROUGH,
+                        MemoryOperationType.WRITE_NON_CACHE,
+                    ):
+                        # Write Enable
+                        m.d.sync += [
+                            wr_port.en.eq(1),
+                        ]
+                        pass
+                    with m.Case(MemoryOperationType.NOP):
+                        # NOP. keep READY state
+                        pass
+                    with m.Case(
+                        MemoryOperationType.MANAGE_INVALIDATE,
+                        MemoryOperationType.MANAGE_CLEAN,
+                        MemoryOperationType.MANAGE_FLUSH,
+                        MemoryOperationType.MANAGE_ZERO_FILL,
+                        MemoryOperationType.MANAGE_PREFETCH,
+                    ):
+                        # Cache Management対応不要。NOPと同様
+                        pass
+                    with m.Default():
+                        # 未実装
+                        m.d.sync += Assert(
+                            0,
+                            Format(
+                                "Unsupported Operation Type: {:d}",
+                                self.req_in.op_type,
+                            ),
+                        )
+                        m.next = "ABORT"
+            with m.State("ABORT"):
+                # keep ABORT state
+                m.d.sync += self.req_in.busy.eq(1)
 
         return m
 
