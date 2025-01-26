@@ -1,5 +1,5 @@
 from enum import Flag, auto
-from amaranth import Module, Signal, unsigned
+from amaranth import Assert, Module, Signal, unsigned
 from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
@@ -161,6 +161,12 @@ class InstSelectStage(wiring.Component):
                                 # Misaligned Access
                                 m.d.sync += [
                                     abort_type.eq(AbortType.MISALIGNED_FETCH),
+                                    Assert(
+                                        0,
+                                        "Misaligned Access: {:016x}".format(
+                                            self.req_in.branch_req.next_pc
+                                        ),
+                                    ),
                                 ]
                                 m.next = "ABORT"
                             with m.Else():
