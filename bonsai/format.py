@@ -198,7 +198,7 @@ class InstFetchReqSignature(wiring.Signature):
                 # Target PC
                 "locate": Out(InstLocate),
                 # Abort
-                "abort": Out(AbortType),
+                "abort_type": Out(AbortType),
             }
         )
 
@@ -216,6 +216,6 @@ class InstDecodeReqSignature(wiring.Signature):
                 # Instruction
                 "inst": Out(RawInst),
                 # Abort
-                "abort": Out(AbortType),
+                "abort_type": Out(AbortType),
             }
         )

@@ -79,6 +79,24 @@ class SingleCycleMemory(wiring.Component):
         ]
 
         with m.FSM(init="READY", domain="sync"):
+            with m.State("ABORT"):
+                # (default) keep ABORT state
+                m.d.sync += [
+                    self.req_in.busy.eq(1),
+                ]
+
+                # Abort Clearが来ていた場合は解除
+                with m.Switch(self.req_in.op_type):
+                    with m.Case(
+                        MemoryOperationType.MANAGE_CLEAR_ABORT,
+                    ):
+                        # Abort Clear
+                        m.d.sync += [
+                            abort_type.eq(AbortType.NONE),
+                        ]
+                        m.next = "READY"
+                    with m.Default():
+                        pass
             with m.State("READY"):
                 # misaligned data accessは現状非サポート
                 with m.If(is_missaligned):
@@ -134,24 +152,6 @@ class SingleCycleMemory(wiring.Component):
                                 ),
                             ]
                             m.next = "ABORT"
-            with m.State("ABORT"):
-                # (default) keep ABORT state
-                m.d.sync += [
-                    self.req_in.busy.eq(1),
-                ]
-
-                # Abort Clearが来ていた場合は解除
-                with m.Switch(self.req_in.op_type):
-                    with m.Case(
-                        MemoryOperationType.MANAGE_CLEAR_ABORT,
-                    ):
-                        # Abort Clear
-                        m.d.sync += [
-                            abort_type.eq(AbortType.NONE),
-                        ]
-                        m.next = "READY"
-                    with m.Default():
-                        pass
 
         return m
 

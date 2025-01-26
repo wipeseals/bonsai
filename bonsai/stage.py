@@ -5,6 +5,7 @@ from amaranth.lib.wiring import In, Out
 
 from log import Kanata
 from format import (
+    AbortType,
     InstFetchReqSignature,
     InstSelectReqSignature,
     StageCtrlReqSignature,
@@ -78,6 +79,7 @@ class InstSelectStage(wiring.Component):
         pc = Signal(config.ADDR_SHAPE, init=self._initial_pc)
         uniq_id = Signal(config.CMD_UNIQ_ID_SHAPE, init=self._initial_uniq_id)
         cyc = Signal(config.CYCLE_COUNTER_SHAPE, init=0)
+        abort_type = Signal(AbortType, init=AbortType.NONE)
 
         # assign
         m.d.comb += [
@@ -107,6 +109,8 @@ class InstSelectStage(wiring.Component):
         m.d.sync += [
             # disable current cycle destination
             self.req_out.en.eq(0),
+            # default abort
+            self.req_out.abort_type.eq(abort_type),
             # keep pc
             pc.eq(pc),
             self.req_out.locate.pc.eq(pc),
@@ -120,77 +124,94 @@ class InstSelectStage(wiring.Component):
             self.branch_strobe_src_addr.eq(0),
         ]
 
-        # main logic
-        with m.If(~self.req_in.en):
-            # No Request
-            pass
-        with m.Else():
-            with m.If(self.ctrl_req_in.flush):
-                # Flush Request
-                pass
-            with m.Else():
-                with m.If(self.ctrl_req_in.stall):
-                    # Stall Request
+        with m.FSM(init="READY", domain="sync"):
+            with m.State("ABORT"):
+                # Abort Clearが来ていた場合は解除
+                with m.If(self.ctrl_req_in.clear):
+                    # Abort Clear
+                    m.d.sync += [
+                        abort_type.eq(AbortType.NONE),
+                    ]
+                    m.next = "READY"
+            with m.State("READY"):
+                # main logic
+                with m.If(~self.req_in.en):
+                    # No Request
                     pass
                 with m.Else():
-                    with m.If(self.req_in.branch_req.en):
-                        # Branch Request
-                        m.d.sync += [
-                            # enable current cycle destination
-                            self.req_out.en.eq(1),
-                            # set branch target pc
-                            pc.eq(
-                                self.req_in.branch_req.next_pc + self._num_inst_bytes
-                            ),
-                            self.req_out.locate.pc.eq(self.req_in.branch_req.next_pc),
-                            # increment uniq_id
-                            uniq_id.eq(uniq_id + 1),
-                            self.req_out.locate.uniq_id.eq(uniq_id),
-                            # debug branch strobe
-                            self.branch_strobe.eq(1),
-                            self.branch_strobe_src_addr.eq(pc),
-                            self.branch_strobe_dst_addr.eq(
-                                self.req_in.branch_req.next_pc
-                            ),
-                        ]
-                        if PrintFlag.STAGE in self._print_flag:
-                            # log (cmd start, IS stage start)
-                            m.d.sync += [
-                                Kanata.start_cmd(uniq_id=uniq_id),
-                                Kanata.start_stage(
-                                    uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
-                                ),
-                                Kanata.label_cmd_is(
-                                    uniq_id=uniq_id,
-                                    label_type=Kanata.LabelType.ALWAYS,
-                                    pc=self.req_in.branch_req.next_pc,
-                                ),
-                            ]
+                    with m.If(
+                        self.ctrl_req_in.flush
+                        | self.ctrl_req_in.stall
+                        | self.ctrl_req_in.clear
+                    ):
+                        # Flush/Stall/Clear Request時は待機
+                        pass
                     with m.Else():
-                        # Increment PC
-                        m.d.sync += [
-                            # enable current cycle destination
-                            self.req_out.en.eq(1),
-                            # increment pc
-                            pc.eq(pc + self._num_inst_bytes),
-                            self.req_out.locate.pc.eq(pc),
-                            # increment uniq_id
-                            uniq_id.eq(uniq_id + 1),
-                            self.req_out.locate.uniq_id.eq(uniq_id),
-                        ]
-                        if PrintFlag.STAGE in self._print_flag:
-                            # log (cmd start, IS stage start)
+                        with m.If(self.req_in.branch_req.en):
+                            # Branch Request
                             m.d.sync += [
-                                Kanata.start_cmd(uniq_id=uniq_id),
-                                Kanata.start_stage(
-                                    uniq_id=uniq_id, lane_id=self._lane_id, stage="IS"
+                                # enable current cycle destination
+                                self.req_out.en.eq(1),
+                                # set branch target pc
+                                pc.eq(
+                                    self.req_in.branch_req.next_pc
+                                    + self._num_inst_bytes
                                 ),
-                                Kanata.label_cmd_is(
-                                    uniq_id=uniq_id,
-                                    label_type=Kanata.LabelType.ALWAYS,
-                                    pc=pc,
+                                self.req_out.locate.pc.eq(
+                                    self.req_in.branch_req.next_pc
+                                ),
+                                # increment uniq_id
+                                uniq_id.eq(uniq_id + 1),
+                                self.req_out.locate.uniq_id.eq(uniq_id),
+                                # debug branch strobe
+                                self.branch_strobe.eq(1),
+                                self.branch_strobe_src_addr.eq(pc),
+                                self.branch_strobe_dst_addr.eq(
+                                    self.req_in.branch_req.next_pc
                                 ),
                             ]
+                            if PrintFlag.STAGE in self._print_flag:
+                                # log (cmd start, IS stage start)
+                                m.d.sync += [
+                                    Kanata.start_cmd(uniq_id=uniq_id),
+                                    Kanata.start_stage(
+                                        uniq_id=uniq_id,
+                                        lane_id=self._lane_id,
+                                        stage="IS",
+                                    ),
+                                    Kanata.label_cmd_is(
+                                        uniq_id=uniq_id,
+                                        label_type=Kanata.LabelType.ALWAYS,
+                                        pc=self.req_in.branch_req.next_pc,
+                                    ),
+                                ]
+                        with m.Else():
+                            # Increment PC
+                            m.d.sync += [
+                                # enable current cycle destination
+                                self.req_out.en.eq(1),
+                                # increment pc
+                                pc.eq(pc + self._num_inst_bytes),
+                                self.req_out.locate.pc.eq(pc),
+                                # increment uniq_id
+                                uniq_id.eq(uniq_id + 1),
+                                self.req_out.locate.uniq_id.eq(uniq_id),
+                            ]
+                            if PrintFlag.STAGE in self._print_flag:
+                                # log (cmd start, IS stage start)
+                                m.d.sync += [
+                                    Kanata.start_cmd(uniq_id=uniq_id),
+                                    Kanata.start_stage(
+                                        uniq_id=uniq_id,
+                                        lane_id=self._lane_id,
+                                        stage="IS",
+                                    ),
+                                    Kanata.label_cmd_is(
+                                        uniq_id=uniq_id,
+                                        label_type=Kanata.LabelType.ALWAYS,
+                                        pc=pc,
+                                    ),
+                                ]
         return m
 
 
