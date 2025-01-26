@@ -1,5 +1,5 @@
 from enum import Flag, auto
-from amaranth import Module, Signal
+from amaranth import Module, Signal, unsigned
 from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
@@ -45,6 +45,17 @@ class InstSelectStage(wiring.Component):
     # Instruction Fetch Request
     req_out: Out(InstFetchReqSignature())
 
+    ###########################################
+    # Debug Signals
+
+    # global cycle counter
+    global_cyc: Out(config.CYCLE_COUNTER_SHAPE)
+    # branch strobe (for debug)
+    branch_strobe: Out(unsigned(1))
+    # branch strobe address (for debug)
+    branch_strobe_src_addr: Out(config.ADDR_SHAPE)
+    branch_strobe_dst_addr: Out(config.ADDR_SHAPE)
+
     def __init__(
         self,
         initial_pc: int = 0,
@@ -63,8 +74,13 @@ class InstSelectStage(wiring.Component):
 
         # local signals
         pc = Signal(config.ADDR_SHAPE, init=self._initial_pc)
-        uniq_id = Signal(config.ADDR_SHAPE, init=self._initial_uniq_id)
-        cyc = Signal(config.REG_SHAPE, init=0)
+        uniq_id = Signal(config.CMD_UNIQ_ID_SHAPE, init=self._initial_uniq_id)
+        cyc = Signal(config.CYCLE_COUNTER_SHAPE, init=0)
+
+        # assign
+        m.d.comb += [
+            self.global_cyc.eq(cyc),
+        ]
 
         # log (initial header)
         with m.If(cyc == 0):
@@ -99,6 +115,9 @@ class InstSelectStage(wiring.Component):
             self.req_out.locate.num_inst_bytes.eq(self.req_in.num_inst_bytes),
             # always increment cyc
             cyc.eq(cyc + 1),
+            # default branch strobe disable
+            self.branch_strobe.eq(0),
+            self.branch_strobe_src_addr.eq(0),
         ]
 
         # main logic
@@ -128,6 +147,12 @@ class InstSelectStage(wiring.Component):
                             # increment uniq_id
                             uniq_id.eq(uniq_id + 1),
                             self.req_out.locate.uniq_id.eq(uniq_id),
+                            # debug branch strobe
+                            self.branch_strobe.eq(1),
+                            self.branch_strobe_src_addr.eq(pc),
+                            self.branch_strobe_dst_addr.eq(
+                                self.req_in.branch_req.next_pc
+                            ),
                         ]
                         if PrintFlag.STAGE in self._print_flag:
                             # log (cmd start, IS stage start)

@@ -58,6 +58,12 @@ REFGILE_INDEX_WIDTH: int = exact_log2(NUM_REGFILE_INDEX)
 # opcode width
 OPCODE_WIDTH: int = 7
 
+# cpu cycle counter width
+CYCLE_COUNTER_WIDTH: int = 64
+
+# cmd unique id width
+CMD_UNIQ_ID_WIDTH: int = 32
+
 #####################################################
 # CPU Register and Memory Configuration (shapes)
 
@@ -87,6 +93,12 @@ REGFILE_INDEX_SHAPE: Shape = unsigned(REFGILE_INDEX_WIDTH)
 
 # opcode shape
 OPCODE_SHAPE: Shape = unsigned(OPCODE_WIDTH)
+
+# cpu cycle counter shape
+CYCLE_COUNTER_SHAPE: Shape = unsigned(CYCLE_COUNTER_WIDTH)
+
+# cmd unique id shape
+CMD_UNIQ_ID_SHAPE: Shape = unsigned(CMD_UNIQ_ID_WIDTH)
 
 #####################################################
 # L1 Cache Configuration

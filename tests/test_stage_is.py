@@ -35,6 +35,8 @@ def test_is_increment(num_inst_bytes: int, test_cycles: int = 30):
             assert ctx.get(dut.req_out.locate.pc) == INITIAL_PC + num_inst_bytes * cyc
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
             assert ctx.get(dut.req_out.locate.num_inst_bytes) == num_inst_bytes
+            # check branch
+            assert ctx.get(dut.branch_strobe) == 0
 
     run_sim(f"{test_is_increment.__name__}_{num_inst_bytes}", dut=dut, testbench=bench)
 
@@ -91,6 +93,8 @@ def test_is_stall(stall_cyc: int, num_inst_bytes: int = 4):
                 ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc + cyc
             )
             assert ctx.get(dut.req_out.locate.num_inst_bytes) == num_inst_bytes
+            # check branch
+            assert ctx.get(dut.branch_strobe) == 0
 
     run_sim(f"{test_is_stall.__name__}", dut=dut, testbench=bench)
 
@@ -122,6 +126,8 @@ def test_is_flush(num_inst_bytes: int = 4):
             assert ctx.get(dut.req_out.locate.pc) == INITIAL_PC + num_inst_bytes * cyc
             assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
             assert ctx.get(dut.req_out.locate.num_inst_bytes) == num_inst_bytes
+            # check branch
+            assert ctx.get(dut.branch_strobe) == 0
 
         # flush
         ctx.set(dut.ctrl_req_in.flush, 1)
@@ -143,6 +149,8 @@ def test_is_flush(num_inst_bytes: int = 4):
                 ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc + pre_cyc
             )
             assert ctx.get(dut.req_out.locate.num_inst_bytes) == num_inst_bytes
+            # check branch
+            assert ctx.get(dut.branch_strobe) == 0
 
     run_sim(f"{test_is_flush.__name__}", dut=dut, testbench=bench)
 
@@ -187,6 +195,12 @@ def test_is_branch_target(num_inst_bytes: int):
         # check pc
         assert ctx.get(dut.req_out.locate.pc) == branch_pc
         assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
+        # check branch
+        assert ctx.get(dut.branch_strobe) == 1
+        assert (
+            ctx.get(dut.branch_strobe_src_addr) == INITIAL_PC + num_inst_bytes * pre_cyc
+        )
+        assert ctx.get(dut.branch_strobe_dst_addr) == branch_pc
 
         # increment
         ctx.set(dut.req_in.branch_req.en, 0)
@@ -204,6 +218,8 @@ def test_is_branch_target(num_inst_bytes: int):
                 == INITIAL_UNIQ_ID + pre_cyc + 1 + cyc  # pre_cyc + branch + post_cyc
             )
             assert ctx.get(dut.req_out.locate.num_inst_bytes) == num_inst_bytes
+            # check branch
+            assert ctx.get(dut.branch_strobe) == 0
 
     run_sim(
         f"{test_is_branch_target.__name__}_{num_inst_bytes}", dut=dut, testbench=bench

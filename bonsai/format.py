@@ -17,7 +17,7 @@ class InstLocate(data.Struct):
     pc: config.ADDR_SHAPE
 
     # Unique ID (for logging)
-    uniq_id: config.ADDR_SHAPE
+    uniq_id: config.CMD_UNIQ_ID_SHAPE
 
     # Number of instruction bytes
     num_inst_bytes: config.INST_BYTES_SHAPE
@@ -35,7 +35,7 @@ class RawInst(data.Struct):
     locate: InstLocate
 
     # Unique ID (for logging)
-    uniq_id: config.ADDR_SHAPE
+    uniq_id: config.CMD_UNIQ_ID_SHAPE
 
 
 class BranchReq(data.Struct):
