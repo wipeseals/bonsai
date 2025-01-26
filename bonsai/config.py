@@ -38,10 +38,10 @@ DATA_WIDTH: int = 32
 INST_WIDTH: int = 32
 
 # Instruction byte width (Compress=2byte, RV32=4byte, RV64=8byte)
-INST_BYTES: int = INST_WIDTH // 8
+NUM_INST_BYTE: int = INST_WIDTH // 8
 
 # Bitshift for PC to get the instruction address (Compress=1, RV32=2, RV64=3)
-INST_ADDR_SHIFT: int = exact_log2(INST_BYTES)
+INST_ADDR_SHIFT: int = exact_log2(NUM_INST_BYTE)
 
 # Number of general purpose registers
 NUM_GPR: int = 32
@@ -71,7 +71,7 @@ CMD_UNIQ_ID_WIDTH: int = 32
 REG_SHAPE: Shape = unsigned(REG_WIDTH)
 
 # Register shape (unsigned)
-INST_BYTES_SHAPE: Shape = unsigned(INST_BYTES)
+INST_BYTES_SHAPE: Shape = unsigned(NUM_INST_BYTE)
 
 # Register shape (signed)
 SREG_SHAPE_SIGNED: Shape = signed(REG_WIDTH)

@@ -62,11 +62,13 @@ class InstSelectStage(wiring.Component):
         initial_uniq_id: int = 0,
         lane_id: int = 0,
         print_flag: PrintFlag = PrintFlag.all(),
+        num_inst_bytes: int = config.NUM_INST_BYTE,
     ):
         self._initial_pc = initial_pc
         self._initial_uniq_id = initial_uniq_id
         self._lane_id = lane_id
         self._print_flag = print_flag
+        self._num_inst_bytes = num_inst_bytes
         super().__init__()
 
     def elaborate(self, platform):
@@ -111,8 +113,6 @@ class InstSelectStage(wiring.Component):
             # keep uniq_id
             uniq_id.eq(uniq_id),
             self.req_out.locate.uniq_id.eq(uniq_id),
-            # pass request
-            self.req_out.locate.num_inst_bytes.eq(self.req_in.num_inst_bytes),
             # always increment cyc
             cyc.eq(cyc + 1),
             # default branch strobe disable
@@ -140,8 +140,7 @@ class InstSelectStage(wiring.Component):
                             self.req_out.en.eq(1),
                             # set branch target pc
                             pc.eq(
-                                self.req_in.branch_req.next_pc
-                                + self.req_in.num_inst_bytes
+                                self.req_in.branch_req.next_pc + self._num_inst_bytes
                             ),
                             self.req_out.locate.pc.eq(self.req_in.branch_req.next_pc),
                             # increment uniq_id
@@ -173,7 +172,7 @@ class InstSelectStage(wiring.Component):
                             # enable current cycle destination
                             self.req_out.en.eq(1),
                             # increment pc
-                            pc.eq(pc + self.req_in.num_inst_bytes),
+                            pc.eq(pc + self._num_inst_bytes),
                             self.req_out.locate.pc.eq(pc),
                             # increment uniq_id
                             uniq_id.eq(uniq_id + 1),
