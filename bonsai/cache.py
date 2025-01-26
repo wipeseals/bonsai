@@ -53,10 +53,9 @@ class SingleCycleMemory(wiring.Component):
         rd_port: ReadPort = mem.read_port(domain="comb")
 
         # addr != memory indexのため変換
-        byte_width = util.byte_width(self._data_shape.width)
-        req_in_mem_idx = self.req_in.addr_in >> byte_width
+        req_in_mem_idx = self.req_in.addr_in >> self._addr_offset_bits
         # misaligned data accessは現状非サポート
-        is_misaligned = self.req_in.addr_in.bit_select(0, exact_log2(self)) != 0
+        is_misaligned = self.req_in.addr_in.bit_select(0, self._addr_offset_bits) != 0
 
         # Abort
         # Abort要因は制御元stageで使用するので返すが、勝手に再開できないようにAbort状態は継続
