@@ -20,6 +20,24 @@ def test_byte_width(src_width: int, expected_width: int):
 
 
 @pytest.mark.parametrize(
+    "src_data, expected",
+    [
+        (1, True),
+        (2, True),
+        (3, False),
+        (4, True),
+        (8, True),
+        (16, True),
+        (32, True),
+        (64, True),
+        (65, False),
+    ],
+)
+def test_is_power_of_2(src_data: int, expected: bool):
+    assert is_power_of_2(src_data) == expected
+
+
+@pytest.mark.parametrize(
     "src_width, expected",
     [
         (1, True),
@@ -33,5 +51,3 @@ def test_byte_width(src_width: int, expected_width: int):
         (65, False),
     ],
 )
-def test_is_power_of_2(src_width: int, expected: bool):
-    assert is_power_of_2(src_width) == expected
