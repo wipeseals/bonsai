@@ -41,7 +41,8 @@ class SingleCycleMemory(wiring.Component):
         self._init_data = init_data
         self._use_strict_assert = use_strict_assert
         # ミスアライメント検出用
-        self._addr_offset_bits = exact_log2(data_shape.width)
+        self._data_bytes = util.byte_width(data_shape.width)
+        self._addr_offset_bits = exact_log2(self._data_bytes)
         super().__init__()
 
     def elaborate(self, platform):
