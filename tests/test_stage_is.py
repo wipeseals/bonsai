@@ -1,5 +1,5 @@
 from bonsai import config
-from bonsai.format import AbortType
+from bonsai.datatype import AbortType
 from bonsai.stage import InstSelectStage
 
 from tests.testutil import run_sim

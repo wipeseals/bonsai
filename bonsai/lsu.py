@@ -7,7 +7,7 @@ from amaranth.utils import exact_log2
 
 import config
 import util
-from format import AbortType, MemoryAccessReqSignature, MemoryOperationType
+from bonsai.datatype import AbortType, MemoryAccessReqSignature, MemoryOperationType
 
 
 class SingleCycleMemory(wiring.Component):

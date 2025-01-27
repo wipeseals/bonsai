@@ -2,7 +2,7 @@ from typing import Generator, List
 import pytest
 
 from bonsai.lsu import SingleCycleMemory
-from bonsai.format import AbortType, MemoryOperationType
+from bonsai.datatype import AbortType, MemoryOperationType
 from tests.testutil import run_sim
 
 
