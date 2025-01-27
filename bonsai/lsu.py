@@ -1,4 +1,3 @@
-from operator import is_
 from typing import List
 from amaranth import Assert, Format, Module, Mux, Shape, Signal, unsigned
 from amaranth.lib import wiring, memory
