@@ -1,4 +1,4 @@
-from typing import Generator, List
+from typing import List
 import pytest
 
 from bonsai.lsu import SingleCycleMemory
@@ -214,5 +214,50 @@ def test_ssm_two_port_priority():
         await ctx.tick()
         assert ctx.get(dut.primary_req_in.busy) == 0
         assert ctx.get(dut.secondary_req_in.busy) == 0
+
+        # Primary: Write 0xaaaaaaaa (accept)
+        # Secondary: Write 0xbbbbbbbb (reject)
+        ctx.set(dut.primary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(dut.secondary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(dut.primary_req_in.addr_in, 0)
+        ctx.set(dut.secondary_req_in.addr_in, 0)
+        ctx.set(dut.primary_req_in.data_in, 0xAAAAAAAA)
+        ctx.set(dut.secondary_req_in.data_in, 0xBBBBBBBB)
+        await ctx.tick()
+        assert ctx.get(dut.primary_req_in.busy) == 0
+        assert ctx.get(dut.secondary_req_in.busy) == 1
+
+        # Primary: NOP
+        # Secondary: Write 0xcccccccc (accept)
+        ctx.set(dut.primary_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(dut.secondary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(dut.primary_req_in.addr_in, 4)
+        ctx.set(dut.secondary_req_in.addr_in, 4)
+        ctx.set(dut.secondary_req_in.data_in, 0xCCCCCCCC)
+        await ctx.tick()
+        assert ctx.get(dut.primary_req_in.busy) == 1
+        assert ctx.get(dut.secondary_req_in.busy) == 0
+        assert ctx.get(dut.secondary_req_in.data_out) == 0xCCCCCCCC
+
+        # Primary: Read 0x00000000 (accept)
+        # Secondary: Read 0x00000000 (reject)
+        ctx.set(dut.primary_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(dut.secondary_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(dut.primary_req_in.addr_in, 0)
+        ctx.set(dut.secondary_req_in.addr_in, 0)
+        await ctx.tick()
+        assert ctx.get(dut.primary_req_in.busy) == 0
+        assert ctx.get(dut.primary_req_in.data_out) == 0xAAAAAAAA
+        assert ctx.get(dut.secondary_req_in.busy) == 1
+
+        # Primary: NOP
+        # Secondary: Read 0x00000000 (accept)
+        ctx.set(dut.primary_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(dut.secondary_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(dut.secondary_req_in.addr_in, 4)
+        await ctx.tick()
+        assert ctx.get(dut.primary_req_in.busy) == 1
+        assert ctx.get(dut.secondary_req_in.busy) == 0
+        assert ctx.get(dut.secondary_req_in.data_out) == 0xCCCCCCCC
 
     run_sim(f"{test_ssm_read_seq.__name__}_noassert", dut=dut, testbench=bench)
