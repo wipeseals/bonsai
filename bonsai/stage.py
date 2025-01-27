@@ -41,13 +41,13 @@ class InstSelectStage(wiring.Component):
     """
 
     # Stage Control Request
-    ctrl_req_in: In(StagePipelineCtrlReqSignature())
+    pipeline_req_in: In(StagePipelineCtrlReqSignature())
 
     # Instruction Select Request
-    req_in: In(InstSelectReqSignature())
+    prev_stage: In(InstSelectReqSignature())
 
     # Instruction Fetch Request
-    req_out: Out(InstFetchReqSignature())
+    next_stage: Out(InstFetchReqSignature())
 
     ###########################################
     # Debug Signals
@@ -91,7 +91,7 @@ class InstSelectStage(wiring.Component):
         # 直結
         m.d.comb += [
             self.global_cyc.eq(cyc),
-            self.req_out.abort_type.eq(abort_type),
+            self.next_stage.abort_type.eq(abort_type),
             self.misaligned_addr.eq(misaligned_addr),
         ]
 
@@ -111,13 +111,13 @@ class InstSelectStage(wiring.Component):
         # default next state
         m.d.sync += [
             # disable current cycle destination
-            self.req_out.en.eq(0),
+            self.next_stage.en.eq(0),
             # keep pc
             pc.eq(pc),
-            self.req_out.locate.pc.eq(pc),
+            self.next_stage.locate.pc.eq(pc),
             # keep uniq_id
             uniq_id.eq(uniq_id),
-            self.req_out.locate.uniq_id.eq(uniq_id),
+            self.next_stage.locate.uniq_id.eq(uniq_id),
             # always increment cyc
             cyc.eq(cyc + 1),
             # default branch strobe disable (for debug)
@@ -128,7 +128,7 @@ class InstSelectStage(wiring.Component):
         with m.FSM(init="READY", domain="sync"):
             with m.State("ABORT"):
                 # Abort Clearが来ていた場合は解除
-                with m.If(self.ctrl_req_in.clear):
+                with m.If(self.pipeline_req_in.clear):
                     # Abort Clear
                     m.d.sync += [
                         abort_type.eq(AbortType.NONE),
@@ -137,24 +137,24 @@ class InstSelectStage(wiring.Component):
                     m.next = "READY"
             with m.State("READY"):
                 # main logic
-                with m.If(~self.req_in.en):
+                with m.If(~self.prev_stage.en):
                     # No Request
                     pass
                 with m.Else():
                     with m.If(
-                        self.ctrl_req_in.flush
-                        | self.ctrl_req_in.stall
-                        | self.ctrl_req_in.clear
+                        self.pipeline_req_in.flush
+                        | self.pipeline_req_in.stall
+                        | self.pipeline_req_in.clear
                     ):
                         # Flush/Stall/Clear Request時は待機
                         pass
                     with m.Else():
-                        with m.If(self.req_in.branch_req.en):
+                        with m.If(self.prev_stage.branch_req.en):
                             # Illegal Branch Request
                             # incrementはconfig。NUM_INST_BYTEで行っているので、ミスアライメントが起きる可能性はここ
 
                             is_misaligned = (
-                                self.req_in.branch_req.next_pc.bit_select(
+                                self.prev_stage.branch_req.next_pc.bit_select(
                                     0, config.INST_ADDR_OFFSET_BITS
                                 )
                                 != 0
@@ -163,7 +163,9 @@ class InstSelectStage(wiring.Component):
                                 # Misaligned Access
                                 m.d.sync += [
                                     abort_type.eq(AbortType.MISALIGNED_FETCH),
-                                    misaligned_addr.eq(self.req_in.branch_req.next_pc),
+                                    misaligned_addr.eq(
+                                        self.prev_stage.branch_req.next_pc
+                                    ),
                                 ]
                                 m.next = "ABORT"
 
@@ -173,7 +175,7 @@ class InstSelectStage(wiring.Component):
                                             0,
                                             Format(
                                                 "Misaligned Access: {:016x}",
-                                                self.req_in.branch_req.next_pc,
+                                                self.prev_stage.branch_req.next_pc,
                                             ),
                                         ),
                                     ]
@@ -181,23 +183,23 @@ class InstSelectStage(wiring.Component):
                                 # Valid Branch Request
                                 m.d.sync += [
                                     # enable current cycle destination
-                                    self.req_out.en.eq(1),
+                                    self.next_stage.en.eq(1),
                                     # set branch target pc
                                     pc.eq(
-                                        self.req_in.branch_req.next_pc
+                                        self.prev_stage.branch_req.next_pc
                                         + config.INST_BYTE_WIDTH
                                     ),
-                                    self.req_out.locate.pc.eq(
-                                        self.req_in.branch_req.next_pc
+                                    self.next_stage.locate.pc.eq(
+                                        self.prev_stage.branch_req.next_pc
                                     ),
                                     # increment uniq_id
                                     uniq_id.eq(uniq_id + 1),
-                                    self.req_out.locate.uniq_id.eq(uniq_id),
+                                    self.next_stage.locate.uniq_id.eq(uniq_id),
                                     # debug branch strobe
                                     self.branch_strobe.eq(1),
                                     self.branch_strobe_src_addr.eq(pc),
                                     self.branch_strobe_dst_addr.eq(
-                                        self.req_in.branch_req.next_pc
+                                        self.prev_stage.branch_req.next_pc
                                     ),
                                 ]
                                 if PrintFlag.STAGE in self._print_flag:
@@ -212,20 +214,20 @@ class InstSelectStage(wiring.Component):
                                         Kanata.label_cmd_is(
                                             uniq_id=uniq_id,
                                             label_type=Kanata.LabelType.ALWAYS,
-                                            pc=self.req_in.branch_req.next_pc,
+                                            pc=self.prev_stage.branch_req.next_pc,
                                         ),
                                     ]
                         with m.Else():
                             # Increment PC
                             m.d.sync += [
                                 # enable current cycle destination
-                                self.req_out.en.eq(1),
+                                self.next_stage.en.eq(1),
                                 # increment pc
                                 pc.eq(pc + config.INST_BYTE_WIDTH),
-                                self.req_out.locate.pc.eq(pc),
+                                self.next_stage.locate.pc.eq(pc),
                                 # increment uniq_id
                                 uniq_id.eq(uniq_id + 1),
-                                self.req_out.locate.uniq_id.eq(uniq_id),
+                                self.next_stage.locate.uniq_id.eq(uniq_id),
                             ]
                             if PrintFlag.STAGE in self._print_flag:
                                 # log (cmd start, IS stage start)
@@ -251,16 +253,16 @@ class InstFetchStage(wiring.Component):
     """
 
     # Stage Control Request
-    ctrl_req_in: In(StagePipelineCtrlReqSignature())
+    pipeline_req_in: In(StagePipelineCtrlReqSignature())
 
     # Instruction Fetch Request
-    req_in: In(InstFetchReqSignature())
+    prev_stage: In(InstFetchReqSignature())
 
     # Instruction Decode Request
-    req_out: Out(InstDecodeReqSignature())
+    next_stage: Out(InstDecodeReqSignature())
 
     # Memory Access Port
-    mem_req_out: Out(LsuReqSignature())
+    lsu_req_out: Out(LsuReqSignature())
 
     def __init__(self, lane_id: int = 0):
         self._lane_id = lane_id
@@ -278,33 +280,33 @@ class InstFetchStage(wiring.Component):
         data_in = Signal(config.DATA_SHAPE, init=0)
         m.d.comb += [
             # 読み出しOperation
-            self.mem_req_out.op_type.eq(op_type),
-            self.mem_req_out.addr_in.eq(self.req_in.locate.pc),
+            self.lsu_req_out.op_type.eq(op_type),
+            self.lsu_req_out.addr_in.eq(self.prev_stage.locate.pc),
             # Manage用にdata_inを設定
-            self.mem_req_out.data_in.eq(data_in),
+            self.lsu_req_out.data_in.eq(data_in),
         ]
         # 有効なデータの条件
         # 要求がValidでstall/flush/clear中ではなくReadを投げていて、MemoryがBusyでない
         req_valid = (
             (~is_aborted)
-            & (self.req_in.en)
-            & (self.ctrl_req_in.flush == 0)
-            & (self.ctrl_req_in.stall == 0)
-            & (self.ctrl_req_in.clear == 0)
+            & (self.prev_stage.en)
+            & (self.pipeline_req_in.flush == 0)
+            & (self.pipeline_req_in.stall == 0)
+            & (self.pipeline_req_in.clear == 0)
         )
         read_req_valid = (req_valid) & (op_type == LsuOperationType.READ_CACHE)
-        read_done = (read_req_valid) & (self.mem_req_out.busy == 0)
-        read_data = self.mem_req_out.data_out
+        read_done = (read_req_valid) & (self.lsu_req_out.busy == 0)
+        read_data = self.lsu_req_out.data_out
 
         # 出力直結
         m.d.comb += [
             # out: Disable/Enable
-            self.req_out.en.eq(read_done),
+            self.next_stage.en.eq(read_done),
             # out: Read Data & Req引用
-            self.req_out.inst.eq(read_data),
-            self.req_out.inst.locate.eq(self.req_in.locate),
+            self.next_stage.inst.eq(read_data),
+            self.next_stage.inst.locate.eq(self.prev_stage.locate),
             # out: Abort Type
-            self.req_out.abort_type.eq(abort_type),
+            self.next_stage.abort_type.eq(abort_type),
         ]
 
         # TODO: Abort/Manage時の対応
@@ -316,14 +318,14 @@ class InstFetchStage(wiring.Component):
                 # TODO: implement
                 pass
             with m.State("READY"):
-                with m.If(~self.req_in.en):
+                with m.If(~self.prev_stage.en):
                     # No Request
                     pass
                 with m.Else():
                     with m.If(
-                        self.ctrl_req_in.flush
-                        | self.ctrl_req_in.stall
-                        | self.ctrl_req_in.clear
+                        self.pipeline_req_in.flush
+                        | self.pipeline_req_in.stall
+                        | self.pipeline_req_in.clear
                     ):
                         # Flush/Stall/Clear Request時は待機
                         pass

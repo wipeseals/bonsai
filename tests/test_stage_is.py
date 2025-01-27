@@ -19,23 +19,23 @@ def test_is_increment(test_cycles: int = 30):
 
     async def bench(ctx):
         # enable & no flush/stall
-        ctx.set(dut.req_in.en, 1)
-        ctx.set(dut.ctrl_req_in.stall, 0)
-        ctx.set(dut.ctrl_req_in.flush, 0)
+        ctx.set(dut.prev_stage.en, 1)
+        ctx.set(dut.pipeline_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
         # no branch
-        ctx.set(dut.req_in.branch_req.en, 0)
-        ctx.set(dut.req_in.branch_req.next_pc, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
 
         for cyc in range(test_cycles):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc
             assert (
-                ctx.get(dut.req_out.locate.pc)
+                ctx.get(dut.next_stage.locate.pc)
                 == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
-            assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
             # check branch
             assert ctx.get(dut.branch_strobe) == 0
 
@@ -52,46 +52,47 @@ def test_is_stall(stall_cyc: int):
 
     async def bench(ctx):
         # enable & no flush/stall
-        ctx.set(dut.req_in.en, 1)
-        ctx.set(dut.ctrl_req_in.stall, 0)
-        ctx.set(dut.ctrl_req_in.flush, 0)
+        ctx.set(dut.prev_stage.en, 1)
+        ctx.set(dut.pipeline_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
         # no branch
-        ctx.set(dut.req_in.branch_req.en, 0)
-        ctx.set(dut.req_in.branch_req.next_pc, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
 
         pre_cyc = 3
         for cyc in range(pre_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc
             assert (
-                ctx.get(dut.req_out.locate.pc)
+                ctx.get(dut.next_stage.locate.pc)
                 == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
-            assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
         # stall
-        ctx.set(dut.ctrl_req_in.stall, 1)
+        ctx.set(dut.pipeline_req_in.stall, 1)
         for cyc in range(stall_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 0
+            assert ctx.get(dut.next_stage.en) == 0
 
         # release stall
-        ctx.set(dut.ctrl_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.stall, 0)
 
         post_cyc = 3
         for cyc in range(post_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc
             assert ctx.get(
-                dut.req_out.locate.pc
+                dut.next_stage.locate.pc
             ) == INITIAL_PC + config.INST_BYTE_WIDTH * (pre_cyc + cyc)
             assert (
-                ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc + cyc
+                ctx.get(dut.next_stage.locate.uniq_id)
+                == INITIAL_UNIQ_ID + pre_cyc + cyc
             )
 
             # check branch
@@ -109,46 +110,47 @@ def test_is_flush():
 
     async def bench(ctx):
         # enable & no flush/stall
-        ctx.set(dut.req_in.en, 1)
-        ctx.set(dut.ctrl_req_in.stall, 0)
-        ctx.set(dut.ctrl_req_in.flush, 0)
+        ctx.set(dut.prev_stage.en, 1)
+        ctx.set(dut.pipeline_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
         # no branch
-        ctx.set(dut.req_in.branch_req.en, 0)
-        ctx.set(dut.req_in.branch_req.next_pc, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
 
         pre_cyc = 3
         for cyc in range(pre_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc
             assert (
-                ctx.get(dut.req_out.locate.pc)
+                ctx.get(dut.next_stage.locate.pc)
                 == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
-            assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
             # check branch
             assert ctx.get(dut.branch_strobe) == 0
 
         # flush
-        ctx.set(dut.ctrl_req_in.flush, 1)
+        ctx.set(dut.pipeline_req_in.flush, 1)
         await ctx.tick()
         # check enable
-        assert ctx.get(dut.req_out.en) == 0
+        assert ctx.get(dut.next_stage.en) == 0
 
-        ctx.set(dut.ctrl_req_in.flush, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
         post_cyc = 3
         for cyc in range(post_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc (keep pc/uniq_id)
             assert ctx.get(
-                dut.req_out.locate.pc
+                dut.next_stage.locate.pc
             ) == INITIAL_PC + config.INST_BYTE_WIDTH * (cyc + pre_cyc)
             assert (
-                ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc + pre_cyc
+                ctx.get(dut.next_stage.locate.uniq_id)
+                == INITIAL_UNIQ_ID + cyc + pre_cyc
             )
 
             # check branch
@@ -166,36 +168,36 @@ def test_is_branch_valid():
 
     async def bench(ctx):
         # enable & no flush/stall
-        ctx.set(dut.req_in.en, 1)
-        ctx.set(dut.ctrl_req_in.stall, 0)
-        ctx.set(dut.ctrl_req_in.flush, 0)
+        ctx.set(dut.prev_stage.en, 1)
+        ctx.set(dut.pipeline_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
         # no branch
-        ctx.set(dut.req_in.branch_req.en, 0)
-        ctx.set(dut.req_in.branch_req.next_pc, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
 
         pre_cyc = 3
         for cyc in range(pre_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc
             assert (
-                ctx.get(dut.req_out.locate.pc)
+                ctx.get(dut.next_stage.locate.pc)
                 == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
-            assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
         # branch
         branch_pc = 0x2000
-        ctx.set(dut.req_in.branch_req.en, 1)
-        ctx.set(dut.req_in.branch_req.next_pc, branch_pc)
+        ctx.set(dut.prev_stage.branch_req.en, 1)
+        ctx.set(dut.prev_stage.branch_req.next_pc, branch_pc)
         await ctx.tick()
         # check enable
         # note: 後段stageのflushはbranch入力時に並行してフィードバックかける想定
-        assert ctx.get(dut.req_out.en) == 1
+        assert ctx.get(dut.next_stage.en) == 1
         # check pc
-        assert ctx.get(dut.req_out.locate.pc) == branch_pc
-        assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
+        assert ctx.get(dut.next_stage.locate.pc) == branch_pc
+        assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
         # check branch
         assert ctx.get(dut.branch_strobe) == 1
         assert (
@@ -205,18 +207,18 @@ def test_is_branch_valid():
         assert ctx.get(dut.branch_strobe_dst_addr) == branch_pc
 
         # increment
-        ctx.set(dut.req_in.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
         post_cyc = 3
         for cyc in range(post_cyc):
             await ctx.tick()
             # check enable
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             # check pc
             assert ctx.get(
-                dut.req_out.locate.pc
+                dut.next_stage.locate.pc
             ) == branch_pc + config.INST_BYTE_WIDTH * (cyc + 1)  # branch + post_cyc
             assert (
-                ctx.get(dut.req_out.locate.uniq_id)
+                ctx.get(dut.next_stage.locate.uniq_id)
                 == INITIAL_UNIQ_ID + pre_cyc + 1 + cyc  # pre_cyc + branch + post_cyc
             )
 
@@ -237,60 +239,62 @@ def test_is_branch_to_misalign_addr(use_strict_assert: bool):
 
     async def bench(ctx):
         # enable & no flush/stall
-        ctx.set(dut.req_in.en, 1)
-        ctx.set(dut.ctrl_req_in.stall, 0)
-        ctx.set(dut.ctrl_req_in.flush, 0)
+        ctx.set(dut.prev_stage.en, 1)
+        ctx.set(dut.pipeline_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
         # no branch
-        ctx.set(dut.req_in.branch_req.en, 0)
-        ctx.set(dut.req_in.branch_req.next_pc, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
 
         pre_cyc = 3
         for cyc in range(pre_cyc):
             await ctx.tick()
-            assert ctx.get(dut.req_out.en) == 1
+            assert ctx.get(dut.next_stage.en) == 1
             assert (
-                ctx.get(dut.req_out.locate.pc)
+                ctx.get(dut.next_stage.locate.pc)
                 == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
             )
-            assert ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+            assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
 
         # branch to misaligned address
         branch_pc = 0x2001  # misaligned
-        ctx.set(dut.req_in.branch_req.en, 1)
-        ctx.set(dut.req_in.branch_req.next_pc, branch_pc)
+        ctx.set(dut.prev_stage.branch_req.en, 1)
+        ctx.set(dut.prev_stage.branch_req.next_pc, branch_pc)
         await ctx.tick()
-        assert ctx.get(dut.req_out.en) == 0
-        assert ctx.get(dut.req_out.abort_type) == AbortType.MISALIGNED_FETCH.value
+        assert ctx.get(dut.next_stage.en) == 0
+        assert ctx.get(dut.next_stage.abort_type) == AbortType.MISALIGNED_FETCH.value
         assert ctx.get(dut.misaligned_addr) == branch_pc
 
         # no branch
-        ctx.set(dut.req_in.branch_req.en, 0)
-        ctx.set(dut.req_in.branch_req.next_pc, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
 
         aborted_cyc = 3
         for cyc in range(aborted_cyc):
             await ctx.tick()
-            assert ctx.get(dut.req_out.en) == 0
-            assert ctx.get(dut.req_out.abort_type) == AbortType.MISALIGNED_FETCH.value
+            assert ctx.get(dut.next_stage.en) == 0
+            assert (
+                ctx.get(dut.next_stage.abort_type) == AbortType.MISALIGNED_FETCH.value
+            )
             assert ctx.get(dut.misaligned_addr) == branch_pc
 
         # clear abort
-        ctx.set(dut.ctrl_req_in.clear, 1)
+        ctx.set(dut.pipeline_req_in.clear, 1)
         await ctx.tick()
-        assert ctx.get(dut.req_out.en) == 0  # まだ状態クリアのみで処理は発生しない
-        assert ctx.get(dut.req_out.abort_type) == AbortType.NONE.value
+        assert ctx.get(dut.next_stage.en) == 0  # まだ状態クリアのみで処理は発生しない
+        assert ctx.get(dut.next_stage.abort_type) == AbortType.NONE.value
         assert ctx.get(dut.misaligned_addr) == 0
 
         # branch to aligned address
         branch_pc = 0x2000
-        ctx.set(dut.ctrl_req_in.clear, 0)
-        ctx.set(dut.req_in.branch_req.en, 1)
-        ctx.set(dut.req_in.branch_req.next_pc, branch_pc)
+        ctx.set(dut.pipeline_req_in.clear, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 1)
+        ctx.set(dut.prev_stage.branch_req.next_pc, branch_pc)
         await ctx.tick()
-        assert ctx.get(dut.req_out.en) == 1
-        assert ctx.get(dut.req_out.locate.pc) == branch_pc
+        assert ctx.get(dut.next_stage.en) == 1
+        assert ctx.get(dut.next_stage.locate.pc) == branch_pc
         assert (
-            ctx.get(dut.req_out.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
+            ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
         ), "uniq_id is not cleared"
         assert ctx.get(dut.branch_strobe) == 1
         assert (
