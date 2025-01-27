@@ -243,7 +243,8 @@ class InstSelectStage(wiring.Component):
                             ),
                         ]
                 with m.Else():
-                    # No Request
+                    # No Request or Flush/Stall/Clear
+                    # TODO: Flush/Clearかつ次段に有効なデータを送ってあった場合はリタイアログ
                     pass
         return m
 
@@ -263,10 +264,14 @@ class InstFetchStage(wiring.Component):
     next_stage: Out(InstDecodeReqSignature())
 
     # Memory Access Port
+    # LSU自体に優先Portを別途実装してあるため、IF stageでの2要求の考慮は不要
     lsu_req_out: Out(LsuReqSignature())
 
-    def __init__(self, lane_id: int = 0):
+    def __init__(
+        self, lane_id: int = 0, use_strict_assert: bool = config.USE_STRICT_ASSERT
+    ):
         self._lane_id = lane_id
+        self._use_strict_assert = use_strict_assert
         super().__init__()
 
     def elaborate(self, platform):
@@ -298,6 +303,9 @@ class InstFetchStage(wiring.Component):
         read_req_valid = (req_valid) & (op_type == LsuOperationType.READ_CACHE)
         read_done = (read_req_valid) & (self.lsu_req_out.busy == 0)
         read_data = self.lsu_req_out.data_out
+        read_aborted = (read_req_valid) & (
+            self.lsu_req_out.abort_type != AbortType.NONE
+        )
 
         # 出力直結
         m.d.comb += [
@@ -313,28 +321,40 @@ class InstFetchStage(wiring.Component):
         # TODO: Abort/Manage時の対応
         with m.FSM(init="READY", domain="sync"):
             with m.State("ABORT"):
-                # TODO: implement
-                pass
-            with m.State("MANAGE"):
-                # TODO: implement
-                pass
+                # 次段にデータは送らない
+                m.d.comb += [
+                    self.next_stage.en.eq(0),
+                ]
+                # Abort Clearが来ていた場合は解除
+                with m.If(self.pipeline_req_in.clear):
+                    # Abort Clear
+                    m.d.sync += [
+                        abort_type.eq(AbortType.NONE),
+                    ]
+                    m.next = "READY"
             with m.State("READY"):
-                with m.If(~self.prev_stage.en):
-                    # No Request
-                    pass
-                with m.Else():
-                    with m.If(
-                        self.pipeline_req_in.flush
-                        | self.pipeline_req_in.stall
-                        | self.pipeline_req_in.clear
-                    ):
-                        # Flush/Stall/Clear Request時は待機
-                        pass
-                    with m.Else():
-                        # Main Logic
-                        # TODO: implement
-                        pass
-                pass
+                # TODO: Stall時の対応(無いはず?)
+                # TODO: Flush/Clear時の削除+ログ
+                with m.If(read_aborted):
+                    # 次段にデータは送らない
+                    m.d.comb += [
+                        self.next_stage.en.eq(0),
+                    ]
+                    # Read Abort
+                    m.d.sync += [
+                        abort_type.eq(self.lsu_req_out.abort_type),
+                    ]
+                    if self._use_strict_assert:
+                        m.d.sync += [
+                            Assert(
+                                0,
+                                Format(
+                                    "LSU Abort: {:d}",
+                                    self.lsu_req_out.abort_type,
+                                ),
+                            ),
+                        ]
+                    m.next = "ABORT"
         return m
 
 
