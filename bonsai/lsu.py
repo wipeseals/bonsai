@@ -19,6 +19,7 @@ class SingleCycleMemory(wiring.Component):
     req_in: In(
         LsuReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
     )
+    # TODO: Cache制御コマンド受付用にDualPort対応
 
     def __init__(
         self,
