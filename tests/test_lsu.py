@@ -76,7 +76,7 @@ def test_ssm_read_random(is_primary: bool):
             assert ctx.get(active_req_in.data_out) == exp_data
             assert ctx.get(inactive_req_in.busy) == 1
 
-    run_sim(f"{test_ssm_read_seq.__name__}", dut=dut, testbench=bench)
+    run_sim(f"{test_ssm_read_random.__name__}", dut=dut, testbench=bench)
 
 
 @pytest.mark.parametrize("is_primary", [True, False])
@@ -193,10 +193,14 @@ def test_ssm_abort_misaligned(use_strict_assert: bool, is_primary: bool):
 
     if use_strict_assert:
         with pytest.raises(AssertionError) as excinfo:
-            run_sim(f"{test_ssm_read_seq.__name__}_assert", dut=dut, testbench=bench)
+            run_sim(
+                f"{test_ssm_abort_misaligned.__name__}_assert", dut=dut, testbench=bench
+            )
         assert "Misaligned Access" in str(excinfo.value)
     else:
-        run_sim(f"{test_ssm_read_seq.__name__}_noassert", dut=dut, testbench=bench)
+        run_sim(
+            f"{test_ssm_abort_misaligned.__name__}_noassert", dut=dut, testbench=bench
+        )
 
 
 def test_ssm_two_port_priority():
@@ -260,4 +264,4 @@ def test_ssm_two_port_priority():
         assert ctx.get(dut.secondary_req_in.busy) == 0
         assert ctx.get(dut.secondary_req_in.data_out) == 0xCCCCCCCC
 
-    run_sim(f"{test_ssm_read_seq.__name__}_noassert", dut=dut, testbench=bench)
+    run_sim(f"{test_ssm_two_port_priority.__name__}", dut=dut, testbench=bench)
