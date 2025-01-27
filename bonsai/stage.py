@@ -4,7 +4,7 @@ from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
 
 from log import Kanata
-from bonsai.datatype import (
+from datatype import (
     AbortType,
     InstDecodeReqSignature,
     InstFetchReqSignature,
