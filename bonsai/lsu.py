@@ -1,5 +1,6 @@
+from operator import is_
 from typing import List
-from amaranth import Assert, Format, Module, Shape, Signal, unsigned
+from amaranth import Assert, Format, Module, Mux, Shape, Signal, unsigned
 from amaranth.lib import wiring, memory
 from amaranth.lib.memory import WritePort, ReadPort
 from amaranth.lib.wiring import In
@@ -7,7 +8,7 @@ from amaranth.utils import exact_log2
 
 import config
 import util
-from bonsai.datatype import AbortType, LsuReqSignature, LsuOperationType
+from datatype import AbortType, LsuReqSignature, LsuOperationType
 
 
 class SingleCycleMemory(wiring.Component):
@@ -16,10 +17,12 @@ class SingleCycleMemory(wiring.Component):
     """
 
     # Memory Access Port
-    req_in: In(
+    primary_req_in: In(
         LsuReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
     )
-    # TODO: Cache制御コマンド受付用にDualPort対応
+    secondary_req_in: In(
+        LsuReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
+    )
 
     def __init__(
         self,
@@ -54,10 +57,23 @@ class SingleCycleMemory(wiring.Component):
         wr_port: WritePort = mem.write_port()
         rd_port: ReadPort = mem.read_port(domain="comb")
 
+        # Primary Port > Secondary Portの優先度で動く
+        is_primary_req = self.primary_req_in.op_type != LsuOperationType.NOP
+        is_secondary_req = self.secondary_req_in.op_type != LsuOperationType.NOP
+        op_type = Mux(
+            is_primary_req, self.primary_req_in.op_type, self.secondary_req_in.op_type
+        )
+        addr_in = Mux(
+            is_primary_req, self.primary_req_in.addr_in, self.secondary_req_in.addr_in
+        )
+        data_in = Mux(
+            is_primary_req, self.primary_req_in.data_in, self.secondary_req_in.data_in
+        )
+
         # addr != memory indexのため変換
-        req_in_mem_idx = self.req_in.addr_in >> self._addr_offset_bits
         # misaligned data accessは現状非サポート
-        is_misaligned = self.req_in.addr_in.bit_select(0, self._addr_offset_bits) != 0
+        req_in_mem_idx = addr_in >> self._addr_offset_bits
+        is_misaligned = addr_in.bit_select(0, self._addr_offset_bits) != 0
 
         # Abort
         # Abort要因は制御元stageで使用するので返すが、勝手に再開できないようにAbort状態は継続
@@ -67,7 +83,7 @@ class SingleCycleMemory(wiring.Component):
         # AbortしていないかつWrite要求の場合のみ許可。1cycで済むのでbusy不要。wrenは遅延させたくないのでcomb
         write_en = Signal(unsigned(1), init=0)
         with m.If(abort_type == AbortType.NONE):
-            with m.Switch(self.req_in.op_type):
+            with m.Switch(op_type):
                 with m.Case(
                     LsuOperationType.WRITE_CACHE,
                     LsuOperationType.WRITE_THROUGH,
@@ -81,30 +97,47 @@ class SingleCycleMemory(wiring.Component):
         m.d.comb += [
             # rd_port.en.eq(0),# combの場合はConst(1)
             rd_port.addr.eq(req_in_mem_idx),
-            self.req_in.data_out.eq(rd_port.data),  # W/R同時利用しないので透過不要
+            self.primary_req_in.data_out.eq(rd_port.data),
+            self.secondary_req_in.data_out.eq(rd_port.data),
             # default write port setting
             wr_port.addr.eq(req_in_mem_idx),
-            wr_port.data.eq(self.req_in.data_in),
+            wr_port.data.eq(data_in),
             # default abort
-            self.req_in.abort_type.eq(abort_type),
+            self.primary_req_in.abort_type.eq(abort_type),
+            self.secondary_req_in.abort_type.eq(abort_type),
             # write enable
             wr_port.en.eq(write_en),
         ]
+
         # default state
-        m.d.sync += [
-            # not busy
-            self.req_in.busy.eq(0),
-        ]
+        # 要求が来ている方はdefault not busy, 他方はdefault busy固定
+        with m.If(is_primary_req):
+            m.d.sync += [
+                self.primary_req_in.busy.eq(0),
+                self.secondary_req_in.busy.eq(1),
+            ]
+        with m.Elif(is_secondary_req):
+            m.d.sync += [
+                self.primary_req_in.busy.eq(1),
+                self.secondary_req_in.busy.eq(0),
+            ]
+        with m.Else():
+            # NOP = not busy
+            m.d.sync += [
+                self.primary_req_in.busy.eq(0),
+                self.secondary_req_in.busy.eq(0),
+            ]
 
         with m.FSM(init="READY", domain="sync"):
             with m.State("ABORT"):
                 # (default) keep ABORT state
                 m.d.sync += [
-                    self.req_in.busy.eq(1),
+                    self.primary_req_in.busy.eq(1),
+                    self.secondary_req_in.busy.eq(1),
                 ]
 
                 # Abort Clearが来ていた場合は解除
-                with m.Switch(self.req_in.op_type):
+                with m.Switch(op_type):
                     with m.Case(
                         LsuOperationType.MANAGE_CLEAR_ABORT,
                     ):
@@ -119,7 +152,8 @@ class SingleCycleMemory(wiring.Component):
                 # misaligned data accessは現状非サポート
                 with m.If(is_misaligned):
                     m.d.sync += [
-                        self.req_in.busy.eq(1),
+                        self.primary_req_in.busy.eq(1),
+                        self.secondary_req_in.busy.eq(1),
                         abort_type.eq(AbortType.MISALIGNED_MEM_ACCESS),
                     ]
                     m.next = "ABORT"
@@ -129,7 +163,9 @@ class SingleCycleMemory(wiring.Component):
                             Assert(
                                 0,
                                 Format(
-                                    "Misaligned Access: {:016x}", self.req_in.addr_in
+                                    "Misaligned Access: {:016x} (is_primary_req: {:d})",
+                                    addr_in,
+                                    is_primary_req,
                                 ),
                             ),
                         ]
