@@ -1,4 +1,5 @@
 from enum import Flag, auto
+from operator import is_
 from amaranth import Assert, Format, Module, Signal, unsigned
 from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
@@ -85,7 +86,12 @@ class InstSelectStage(wiring.Component):
         pc = Signal(config.ADDR_SHAPE, init=self._initial_pc)
         uniq_id = Signal(config.CMD_UNIQ_ID_SHAPE, init=self._initial_uniq_id)
         cyc = Signal(config.CYCLE_COUNTER_SHAPE, init=0)
+
+        # Abort状態
         abort_type = Signal(AbortType, init=AbortType.NONE)
+        is_aborted = abort_type != AbortType.NONE
+
+        # Misaligned Access Address
         misaligned_addr = Signal(config.ADDR_SHAPE, init=0)
 
         # 直結
@@ -125,6 +131,23 @@ class InstSelectStage(wiring.Component):
             self.branch_strobe_src_addr.eq(0),
         ]
 
+        # Abort中ではなく有効なデータで、Flush/Stall/Clear中でない場合はデータ処理
+        req_valid = (
+            (~is_aborted)
+            & (self.prev_stage.en)
+            & (self.pipeline_req_in.flush == 0)
+            & (self.pipeline_req_in.stall == 0)
+            & (self.pipeline_req_in.clear == 0)
+        )
+        is_branch_req = (req_valid) & self.prev_stage.branch_req.en
+        is_misaligned_branch_req = (is_branch_req) & (
+            self.prev_stage.branch_req.next_pc.bit_select(
+                0, config.INST_ADDR_OFFSET_BITS
+            )
+            != 0
+        )
+        is_increment_req = (req_valid) & (~is_branch_req) & (~is_misaligned_branch_req)
+
         with m.FSM(init="READY", domain="sync"):
             with m.State("ABORT"):
                 # Abort Clearが来ていた場合は解除
@@ -137,113 +160,91 @@ class InstSelectStage(wiring.Component):
                     m.next = "READY"
             with m.State("READY"):
                 # main logic
-                with m.If(~self.prev_stage.en):
+                with m.If(is_misaligned_branch_req):
+                    # Illegal Branch Request
+                    m.d.sync += [
+                        abort_type.eq(AbortType.MISALIGNED_FETCH),
+                        misaligned_addr.eq(self.prev_stage.branch_req.next_pc),
+                    ]
+                    m.next = "ABORT"
+
+                    if self._use_strict_assert:
+                        m.d.sync += [
+                            Assert(
+                                0,
+                                Format(
+                                    "Misaligned Access: {:016x}",
+                                    self.prev_stage.branch_req.next_pc,
+                                ),
+                            ),
+                        ]
+                with m.Elif(is_branch_req):
+                    # Valid Branch Request
+                    m.d.sync += [
+                        # enable current cycle destination
+                        self.next_stage.en.eq(1),
+                        # set branch target pc
+                        pc.eq(
+                            self.prev_stage.branch_req.next_pc + config.INST_BYTE_WIDTH
+                        ),
+                        self.next_stage.locate.pc.eq(
+                            self.prev_stage.branch_req.next_pc
+                        ),
+                        # increment uniq_id
+                        uniq_id.eq(uniq_id + 1),
+                        self.next_stage.locate.uniq_id.eq(uniq_id),
+                        # debug branch strobe
+                        self.branch_strobe.eq(1),
+                        self.branch_strobe_src_addr.eq(pc),
+                        self.branch_strobe_dst_addr.eq(
+                            self.prev_stage.branch_req.next_pc
+                        ),
+                    ]
+                    if PrintFlag.STAGE in self._print_flag:
+                        # log (cmd start, IS stage start)
+                        m.d.sync += [
+                            Kanata.start_cmd(uniq_id=uniq_id),
+                            Kanata.start_stage(
+                                uniq_id=uniq_id,
+                                lane_id=self._lane_id,
+                                stage="IS",
+                            ),
+                            Kanata.label_cmd_is(
+                                uniq_id=uniq_id,
+                                label_type=Kanata.LabelType.ALWAYS,
+                                pc=self.prev_stage.branch_req.next_pc,
+                            ),
+                        ]
+                with m.Elif(is_increment_req):
+                    # Increment PC
+                    m.d.sync += [
+                        # enable current cycle destination
+                        self.next_stage.en.eq(1),
+                        # increment pc
+                        pc.eq(pc + config.INST_BYTE_WIDTH),
+                        self.next_stage.locate.pc.eq(pc),
+                        # increment uniq_id
+                        uniq_id.eq(uniq_id + 1),
+                        self.next_stage.locate.uniq_id.eq(uniq_id),
+                    ]
+                    if PrintFlag.STAGE in self._print_flag:
+                        # log (cmd start, IS stage start)
+                        m.d.sync += [
+                            Kanata.start_cmd(uniq_id=uniq_id),
+                            Kanata.start_stage(
+                                uniq_id=uniq_id,
+                                lane_id=self._lane_id,
+                                stage="IS",
+                            ),
+                            Kanata.label_cmd_is(
+                                uniq_id=uniq_id,
+                                label_type=Kanata.LabelType.ALWAYS,
+                                pc=pc,
+                            ),
+                        ]
+                with m.Else():
                     # No Request
                     pass
-                with m.Else():
-                    with m.If(
-                        self.pipeline_req_in.flush
-                        | self.pipeline_req_in.stall
-                        | self.pipeline_req_in.clear
-                    ):
-                        # Flush/Stall/Clear Request時は待機
-                        pass
-                    with m.Else():
-                        with m.If(self.prev_stage.branch_req.en):
-                            # Illegal Branch Request
-                            # incrementはconfig。NUM_INST_BYTEで行っているので、ミスアライメントが起きる可能性はここ
-
-                            is_misaligned = (
-                                self.prev_stage.branch_req.next_pc.bit_select(
-                                    0, config.INST_ADDR_OFFSET_BITS
-                                )
-                                != 0
-                            )
-                            with m.If(is_misaligned):
-                                # Misaligned Access
-                                m.d.sync += [
-                                    abort_type.eq(AbortType.MISALIGNED_FETCH),
-                                    misaligned_addr.eq(
-                                        self.prev_stage.branch_req.next_pc
-                                    ),
-                                ]
-                                m.next = "ABORT"
-
-                                if self._use_strict_assert:
-                                    m.d.sync += [
-                                        Assert(
-                                            0,
-                                            Format(
-                                                "Misaligned Access: {:016x}",
-                                                self.prev_stage.branch_req.next_pc,
-                                            ),
-                                        ),
-                                    ]
-                            with m.Else():
-                                # Valid Branch Request
-                                m.d.sync += [
-                                    # enable current cycle destination
-                                    self.next_stage.en.eq(1),
-                                    # set branch target pc
-                                    pc.eq(
-                                        self.prev_stage.branch_req.next_pc
-                                        + config.INST_BYTE_WIDTH
-                                    ),
-                                    self.next_stage.locate.pc.eq(
-                                        self.prev_stage.branch_req.next_pc
-                                    ),
-                                    # increment uniq_id
-                                    uniq_id.eq(uniq_id + 1),
-                                    self.next_stage.locate.uniq_id.eq(uniq_id),
-                                    # debug branch strobe
-                                    self.branch_strobe.eq(1),
-                                    self.branch_strobe_src_addr.eq(pc),
-                                    self.branch_strobe_dst_addr.eq(
-                                        self.prev_stage.branch_req.next_pc
-                                    ),
-                                ]
-                                if PrintFlag.STAGE in self._print_flag:
-                                    # log (cmd start, IS stage start)
-                                    m.d.sync += [
-                                        Kanata.start_cmd(uniq_id=uniq_id),
-                                        Kanata.start_stage(
-                                            uniq_id=uniq_id,
-                                            lane_id=self._lane_id,
-                                            stage="IS",
-                                        ),
-                                        Kanata.label_cmd_is(
-                                            uniq_id=uniq_id,
-                                            label_type=Kanata.LabelType.ALWAYS,
-                                            pc=self.prev_stage.branch_req.next_pc,
-                                        ),
-                                    ]
-                        with m.Else():
-                            # Increment PC
-                            m.d.sync += [
-                                # enable current cycle destination
-                                self.next_stage.en.eq(1),
-                                # increment pc
-                                pc.eq(pc + config.INST_BYTE_WIDTH),
-                                self.next_stage.locate.pc.eq(pc),
-                                # increment uniq_id
-                                uniq_id.eq(uniq_id + 1),
-                                self.next_stage.locate.uniq_id.eq(uniq_id),
-                            ]
-                            if PrintFlag.STAGE in self._print_flag:
-                                # log (cmd start, IS stage start)
-                                m.d.sync += [
-                                    Kanata.start_cmd(uniq_id=uniq_id),
-                                    Kanata.start_stage(
-                                        uniq_id=uniq_id,
-                                        lane_id=self._lane_id,
-                                        stage="IS",
-                                    ),
-                                    Kanata.label_cmd_is(
-                                        uniq_id=uniq_id,
-                                        label_type=Kanata.LabelType.ALWAYS,
-                                        pc=pc,
-                                    ),
-                                ]
         return m
 
 
