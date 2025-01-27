@@ -9,9 +9,9 @@ from bonsai.datatype import (
     InstDecodeReqSignature,
     InstFetchReqSignature,
     InstSelectReqSignature,
-    MemoryAccessReqSignature,
-    MemoryOperationType,
-    StageCtrlReqSignature,
+    LsuReqSignature,
+    LsuOperationType,
+    StagePipelineCtrlReqSignature,
 )
 import config
 import util
@@ -41,7 +41,7 @@ class InstSelectStage(wiring.Component):
     """
 
     # Stage Control Request
-    ctrl_req_in: In(StageCtrlReqSignature())
+    ctrl_req_in: In(StagePipelineCtrlReqSignature())
 
     # Instruction Select Request
     req_in: In(InstSelectReqSignature())
@@ -251,7 +251,7 @@ class InstFetchStage(wiring.Component):
     """
 
     # Stage Control Request
-    ctrl_req_in: In(StageCtrlReqSignature())
+    ctrl_req_in: In(StagePipelineCtrlReqSignature())
 
     # Instruction Fetch Request
     req_in: In(InstFetchReqSignature())
@@ -260,7 +260,7 @@ class InstFetchStage(wiring.Component):
     req_out: Out(InstDecodeReqSignature())
 
     # Memory Access Port
-    mem_req_out: Out(MemoryAccessReqSignature())
+    mem_req_out: Out(LsuReqSignature())
 
     def __init__(self, lane_id: int = 0):
         self._lane_id = lane_id
@@ -274,7 +274,7 @@ class InstFetchStage(wiring.Component):
         is_aborted = abort_type != AbortType.NONE
 
         # Read Access制御。op_typeの変更でRead/Nanageを切り替える
-        op_type = Signal(MemoryOperationType, init=MemoryOperationType.READ_CACHE)
+        op_type = Signal(LsuOperationType, init=LsuOperationType.READ_CACHE)
         data_in = Signal(config.DATA_SHAPE, init=0)
         m.d.comb += [
             # 読み出しOperation
@@ -292,7 +292,7 @@ class InstFetchStage(wiring.Component):
             & (self.ctrl_req_in.stall == 0)
             & (self.ctrl_req_in.clear == 0)
         )
-        read_req_valid = (req_valid) & (op_type == MemoryOperationType.READ_CACHE)
+        read_req_valid = (req_valid) & (op_type == LsuOperationType.READ_CACHE)
         read_done = (read_req_valid) & (self.mem_req_out.busy == 0)
         read_data = self.mem_req_out.data_out
 

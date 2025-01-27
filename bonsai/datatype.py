@@ -90,7 +90,7 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class MemoryOperationType(enum.Enum):
+class LsuOperationType(enum.Enum):
     """
     キャッシュアクセス時のキャッシュ取り扱い種別
     """
@@ -124,7 +124,7 @@ class MemoryOperationType(enum.Enum):
     MANAGE_PREFETCH = 11
 
 
-class MemoryAccessReqSignature(wiring.Signature):
+class LsuReqSignature(wiring.Signature):
     """
     キャッシュアクセス要求の信号
     """
@@ -136,7 +136,7 @@ class MemoryAccessReqSignature(wiring.Signature):
         super().__init__(
             {
                 # Write Back, Write Through, Non Cached
-                "op_type": Out(MemoryOperationType),
+                "op_type": Out(LsuOperationType),
                 # アクセスアドレス
                 "addr_in": Out(addr_shape),
                 # 書き込みデータ (Read時は無視)
@@ -151,7 +151,7 @@ class MemoryAccessReqSignature(wiring.Signature):
         )
 
 
-class StageCtrlReqSignature(wiring.Signature):
+class StagePipelineCtrlReqSignature(wiring.Signature):
     """
     全体から個別Stageへの制御信号
     """

@@ -7,7 +7,7 @@ from amaranth.utils import exact_log2
 
 import config
 import util
-from bonsai.datatype import AbortType, MemoryAccessReqSignature, MemoryOperationType
+from bonsai.datatype import AbortType, LsuReqSignature, LsuOperationType
 
 
 class SingleCycleMemory(wiring.Component):
@@ -17,9 +17,7 @@ class SingleCycleMemory(wiring.Component):
 
     # Memory Access Port
     req_in: In(
-        MemoryAccessReqSignature(
-            addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE
-        )
+        LsuReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
     )
 
     def __init__(
@@ -70,9 +68,9 @@ class SingleCycleMemory(wiring.Component):
         with m.If(abort_type == AbortType.NONE):
             with m.Switch(self.req_in.op_type):
                 with m.Case(
-                    MemoryOperationType.WRITE_CACHE,
-                    MemoryOperationType.WRITE_THROUGH,
-                    MemoryOperationType.WRITE_NON_CACHE,
+                    LsuOperationType.WRITE_CACHE,
+                    LsuOperationType.WRITE_THROUGH,
+                    LsuOperationType.WRITE_NON_CACHE,
                 ):
                     m.d.comb += write_en.eq(1)
                 with m.Default():
@@ -107,7 +105,7 @@ class SingleCycleMemory(wiring.Component):
                 # Abort Clearが来ていた場合は解除
                 with m.Switch(self.req_in.op_type):
                     with m.Case(
-                        MemoryOperationType.MANAGE_CLEAR_ABORT,
+                        LsuOperationType.MANAGE_CLEAR_ABORT,
                     ):
                         # Abort Clear (この時点では読み出していないのでbusyは解除しない)
                         m.d.sync += [

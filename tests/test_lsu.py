@@ -2,7 +2,7 @@ from typing import Generator, List
 import pytest
 
 from bonsai.lsu import SingleCycleMemory
-from bonsai.datatype import AbortType, MemoryOperationType
+from bonsai.datatype import AbortType, LsuOperationType
 from tests.testutil import run_sim
 
 
@@ -19,7 +19,7 @@ def test_ssm_read_seq():
 
     async def bench(ctx):
         # disable
-        ctx.set(dut.req_in.op_type, MemoryOperationType.NOP.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.req_in.addr_in, 0)
         ctx.set(dut.req_in.data_in, 0)
 
@@ -29,7 +29,7 @@ def test_ssm_read_seq():
             assert ctx.get(dut.req_in.busy) == 0
 
         # read incremental
-        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.READ_CACHE.value)
         for data_idx, exp_data in enumerate(init_data):
             read_addr = data_idx * 4
             ctx.set(dut.req_in.addr_in, read_addr)
@@ -48,7 +48,7 @@ def test_ssm_read_random():
 
     async def bench(ctx):
         # disable
-        ctx.set(dut.req_in.op_type, MemoryOperationType.NOP.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.req_in.addr_in, 0)
         ctx.set(dut.req_in.data_in, 0)
 
@@ -58,7 +58,7 @@ def test_ssm_read_random():
             assert ctx.get(dut.req_in.busy) == 0
 
         # read random
-        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.READ_CACHE.value)
         for read_addr in random_access_address_list:
             data_idx = read_addr // 4
             exp_data = init_data[data_idx]
@@ -77,7 +77,7 @@ def test_ssm_write_seq():
 
     async def bench(ctx):
         # disable
-        ctx.set(dut.req_in.op_type, MemoryOperationType.NOP.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.req_in.addr_in, 0)
         ctx.set(dut.req_in.data_in, 0)
 
@@ -90,7 +90,7 @@ def test_ssm_write_seq():
         def process_data(data: int) -> int:
             return 0xFFFFFFFF - data
 
-        ctx.set(dut.req_in.op_type, MemoryOperationType.WRITE_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.WRITE_CACHE.value)
         for data_idx, exp_data in enumerate(init_data):
             write_addr = data_idx * 4
             write_data = process_data(exp_data)
@@ -102,7 +102,7 @@ def test_ssm_write_seq():
             assert ctx.get(dut.req_in.data_out) == write_data
 
         # read verify
-        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.READ_CACHE.value)
         for data_idx, exp_data in enumerate(init_data):
             read_addr = data_idx * 4
             ctx.set(dut.req_in.addr_in, read_addr)
@@ -120,7 +120,7 @@ def test_ssm_abort_misaligned(use_strict_assert: bool):
 
     async def bench(ctx):
         # disable
-        ctx.set(dut.req_in.op_type, MemoryOperationType.NOP.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.req_in.addr_in, 0)
         ctx.set(dut.req_in.data_in, 0)
 
@@ -131,7 +131,7 @@ def test_ssm_abort_misaligned(use_strict_assert: bool):
 
         # read misaligned
         read_addr = 0xFFFFFFF1
-        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.READ_CACHE.value)
         ctx.set(dut.req_in.addr_in, read_addr)
         await ctx.tick()
         assert ctx.get(dut.req_in.busy) == 1
@@ -139,7 +139,7 @@ def test_ssm_abort_misaligned(use_strict_assert: bool):
 
         # read seq (aborted)
         read_addr = 0x00000004
-        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.READ_CACHE.value)
         ctx.set(dut.req_in.addr_in, read_addr)
 
         aborted_cyc = 3
@@ -153,12 +153,12 @@ def test_ssm_abort_misaligned(use_strict_assert: bool):
         # abort clear
         read_addr = 0x00000004
         ctx.set(dut.req_in.addr_in, read_addr)
-        ctx.set(dut.req_in.op_type, MemoryOperationType.MANAGE_CLEAR_ABORT.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.MANAGE_CLEAR_ABORT.value)
         await ctx.tick()
         assert ctx.get(dut.req_in.busy) == 1
 
         # read
-        ctx.set(dut.req_in.op_type, MemoryOperationType.READ_CACHE.value)
+        ctx.set(dut.req_in.op_type, LsuOperationType.READ_CACHE.value)
         await ctx.tick()
         assert ctx.get(dut.req_in.busy) == 0
         assert ctx.get(dut.req_in.data_out) == init_data[1]
