@@ -1,10 +1,6 @@
-from enum import auto
-from typing import Optional
 from amaranth import unsigned
-import amaranth
 from amaranth.lib import data, wiring, enum
 from amaranth.lib.wiring import In, Out
-from amaranth.utils import log2_int
 
 from regfile import RegData, RegIndex
 import util
@@ -18,14 +14,11 @@ class AbortType(enum.Enum):
 
     # No Exception
     NONE = 0
-
-    # Misaligned Fetch
-    MISALIGNED_FETCH = 1
-
-    # Illegal Memory Operation
-    ILLEGAL_MEM_OP = 2
-
-    # Misaligned Memory Access
+    # Stage外部からのAbort要求
+    EXTERNAL_ABORT = 1
+    # IS stageで不正なアドレスをFetchしようとした
+    MISALIGNED_FETCH = 2
+    # ID stageで不正なアドレスをDecodeしようとした
     MISALIGNED_MEM_ACCESS = 3
 
 
@@ -49,11 +42,8 @@ class RawInst(data.Struct):
     # Instruction
     inst: config.INST_SHAPE
 
-    # PC (for logging)
+    # PC/Unique ID (for logging)
     locate: InstLocate
-
-    # Unique ID (for logging)
-    uniq_id: config.CMD_UNIQ_ID_SHAPE
 
 
 class BranchReq(data.Struct):
@@ -93,7 +83,7 @@ class RegFwdReq(data.Struct):
     data: RegData
 
 
-class MemoryOperationType(enum.Enum):
+class LsuOperationType(enum.Enum):
     """
     キャッシュアクセス時のキャッシュ取り扱い種別
     """
@@ -127,7 +117,7 @@ class MemoryOperationType(enum.Enum):
     MANAGE_PREFETCH = 11
 
 
-class MemoryAccessReqSignature(wiring.Signature):
+class CoreBusReqReqSignature(wiring.Signature):
     """
     キャッシュアクセス要求の信号
     """
@@ -138,8 +128,10 @@ class MemoryAccessReqSignature(wiring.Signature):
 
         super().__init__(
             {
+                # Enable (Slave Select)
+                "en": Out(unsigned(1)),
                 # Write Back, Write Through, Non Cached
-                "op_type": Out(MemoryOperationType),
+                "op_type": Out(LsuOperationType),
                 # アクセスアドレス
                 "addr_in": Out(addr_shape),
                 # 書き込みデータ (Read時は無視)
@@ -154,7 +146,7 @@ class MemoryAccessReqSignature(wiring.Signature):
         )
 
 
-class StageCtrlReqSignature(wiring.Signature):
+class StagePipelineCtrlReqSignature(wiring.Signature):
     """
     全体から個別Stageへの制御信号
     """
@@ -168,6 +160,8 @@ class StageCtrlReqSignature(wiring.Signature):
                 "flush": Out(unsigned(1)),
                 # Abortして処理停止したStageのAbort状態解除が必要なときに1。clear解除まではstallが継続
                 "clear": Out(unsigned(1)),
+                # 強制的にAbort状態にするときに1
+                "abort": Out(unsigned(1)),
             }
         )
 
