@@ -1,5 +1,4 @@
 from typing import List
-from xml import dom
 from amaranth import Assert, Const, Format, Module, Mux, Shape, Signal, unsigned
 from amaranth.lib import wiring, memory
 from amaranth.lib.memory import WritePort, ReadPort
@@ -97,10 +96,17 @@ class SingleCycleMemory(wiring.Component):
         mem_byte_offset = addr_in.bit_select(0, self._addr_offset_bits)  # offset部分
 
         # bytemask は1bit=8byteを示すデータなので実際のマスクを作成
-        datamask = Signal(self._data_shape, init=0)
+        # e.g. bytemask=0b0010 -> datamask=0b00000000_00000000_11111111_00000000
+        datamask = Signal(self._data_shape)
+        m.d.comb += [
+            datamask.eq(Const(0)),
+        ]
         for i in range(WREN_BIT_WIDTH):
-            with m.If(bytemask.bit_select(offset=i, width=1)):
-                datamask |= 0xFF << (i * BITS_PER_BYTEMASK_BIT)
+            m.d.comb += [
+                datamask.bit_select(
+                    i * BITS_PER_BYTEMASK_BIT, BITS_PER_BYTEMASK_BIT
+                ).eq(Mux(bytemask[i], Const(0xFF), Const(0x00))),
+            ]
 
         # data_in のオフセット・バイトマスクを考慮。先にdatamask適用してからword内オフセットをずらす
         data_in_masked = (data_in & datamask) << (
