@@ -1,5 +1,6 @@
 from typing import List
-from amaranth import Assert, Format, Module, Mux, Shape, Signal, unsigned
+from xml import dom
+from amaranth import Assert, Const, Format, Module, Mux, Shape, Signal, unsigned
 from amaranth.lib import wiring, memory
 from amaranth.lib.memory import WritePort, ReadPort
 from amaranth.lib.wiring import In
@@ -50,11 +51,22 @@ class SingleCycleMemory(wiring.Component):
     def elaborate(self, platform):
         m = Module()
 
+        # byte enable用の設定
+        BITS_PER_BYTEMASK_BIT = 8  # byte enable granularity
+        WREN_BIT_WIDTH = self._data_shape.width // BITS_PER_BYTEMASK_BIT
+        assert (
+            WREN_BIT_WIDTH == len(self.primary_req_in.bytemask)
+            and WREN_BIT_WIDTH == len(self.secondary_req_in.bytemask)
+        ), f"Byte Mask Width Error. Expected: {WREN_BIT_WIDTH}, Actual: {len(self.primary_req_in.bytemask)}, {len(self.secondary_req_in.bytemask)}"
+
         # Memory Instance
         m.submodules.mem = mem = memory.Memory(
             shape=self._data_shape, depth=self._depth, init=self._init_data
         )
-        wr_port: WritePort = mem.write_port()
+        # posedgeで更新。wr_port.en が1bitではなく data_width // granularity になる
+        wr_port: WritePort = mem.write_port(
+            domain="sync", granularity=BITS_PER_BYTEMASK_BIT
+        )
         rd_port: ReadPort = mem.read_port(domain="comb")
 
         # Primary Port > Secondary Portの優先度で動く
@@ -73,19 +85,45 @@ class SingleCycleMemory(wiring.Component):
         data_in = Mux(
             is_primary_req, self.primary_req_in.data_in, self.secondary_req_in.data_in
         )
+        bytemask = Mux(
+            is_primary_req, self.primary_req_in.bytemask, self.secondary_req_in.bytemask
+        )
 
-        # addr != memory indexのため変換
-        # misaligned data accessは現状非サポート
-        req_in_mem_idx = addr_in >> self._addr_offset_bits
-        is_misaligned = addr_in.bit_select(0, self._addr_offset_bits) != 0
+        # addr_in の非アライン分とbytemaskを許容するため、mem上のインデックスとその中のオフセットに変換
+        # e.g. addr=0x0009, bytemask=0b0010
+        #       word_idx        = 0x0009 // 4 = 0x0002
+        #       byte_offset     = 0x0009  % 4 = 0x0001
+        mem_word_idx = addr_in >> self._addr_offset_bits  # offset切り捨て
+        mem_byte_offset = addr_in.bit_select(0, self._addr_offset_bits)  # offset部分
+
+        # bytemask は1bit=8byteを示すデータなので実際のマスクを作成
+        datamask = Signal(self._data_shape, init=0)
+        for i in range(WREN_BIT_WIDTH):
+            with m.If(bytemask.bit_select(offset=i, width=1)):
+                datamask |= 0xFF << (i * BITS_PER_BYTEMASK_BIT)
+
+        # data_in のオフセット・バイトマスクを考慮。先にdatamask適用してからword内オフセットをずらす
+        data_in_masked = (data_in & datamask) << (
+            mem_byte_offset * BITS_PER_BYTEMASK_BIT
+        ).bit_select(0, self._data_shape.width)
+
+        # data_out のオフセット・バイトマスクを考慮. 動かす方向がWriteと逆. datamaskはオフセット取り除いた後に適用
+        data_out_masked = (
+            rd_port.data >> (mem_byte_offset * BITS_PER_BYTEMASK_BIT)
+        ).bit_select(0, self._data_shape.width) & datamask
 
         # Abort
         # Abort要因は制御元stageで使用するので返すが、勝手に再開できないようにAbort状態は継続
         abort_type = Signal(AbortType, init=AbortType.NONE)
 
         # Write Enable
+        # bytemask自体はdata_in/out形式での位置を示しているため、word単位でenable制御する場合はoffsetに応じたシフトが必要
+        # e.g. addr=0x0009, bytemask=0b0001, data=0x0000abcd
+        #      data_in       = (0x0000abcd & 0x000000ff) << 8 = 0x0000ab00
+        #      write_en_bits = 0b0001 << 1 = 0b0010            (0x0000ff00相当)
+        write_en_bits = (bytemask << mem_byte_offset).bit_select(0, WREN_BIT_WIDTH)
         # AbortしていないかつWrite要求の場合のみ許可。1cycで済むのでbusy不要。wrenは遅延させたくないのでcomb
-        write_en = Signal(unsigned(1), init=0)
+        write_en = Signal(unsigned(WREN_BIT_WIDTH), init=0)
         with m.If(abort_type == AbortType.NONE):
             with m.Switch(op_type):
                 with m.Case(
@@ -93,19 +131,21 @@ class SingleCycleMemory(wiring.Component):
                     LsuOperationType.WRITE_THROUGH,
                     LsuOperationType.WRITE_NON_CACHE,
                 ):
-                    m.d.comb += write_en.eq(1)
+                    # enable (w/ bytemask)
+                    m.d.comb += write_en.eq(write_en_bits)
                 with m.Default():
+                    # disable
                     m.d.comb += write_en.eq(0)
 
         # 直結
         m.d.comb += [
             # rd_port.en.eq(0),# combの場合はConst(1)
-            rd_port.addr.eq(req_in_mem_idx),
-            self.primary_req_in.data_out.eq(rd_port.data),
-            self.secondary_req_in.data_out.eq(rd_port.data),
+            rd_port.addr.eq(mem_word_idx),
+            self.primary_req_in.data_out.eq(data_out_masked),
+            self.secondary_req_in.data_out.eq(data_out_masked),
             # default write port setting
-            wr_port.addr.eq(req_in_mem_idx),
-            wr_port.data.eq(data_in),
+            wr_port.addr.eq(mem_word_idx),
+            wr_port.data.eq(data_in_masked),
             # default abort
             self.primary_req_in.abort_type.eq(abort_type),
             self.secondary_req_in.abort_type.eq(abort_type),
@@ -153,26 +193,7 @@ class SingleCycleMemory(wiring.Component):
                     with m.Default():
                         pass
             with m.State("READY"):
-                # misaligned data accessは現状非サポート
-                with m.If(is_misaligned):
-                    m.d.sync += [
-                        self.primary_req_in.busy.eq(1),
-                        self.secondary_req_in.busy.eq(1),
-                        abort_type.eq(AbortType.MISALIGNED_MEM_ACCESS),
-                    ]
-                    m.next = "ABORT"
-
-                    if self._use_strict_assert:
-                        m.d.sync += [
-                            Assert(
-                                0,
-                                Format(
-                                    "Misaligned Access: {:016x} (is_primary_req: {:d})",
-                                    addr_in,
-                                    is_primary_req,
-                                ),
-                            ),
-                        ]
+                pass
 
         return m
 

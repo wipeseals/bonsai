@@ -123,8 +123,8 @@ class CoreBusReqSignature(wiring.Signature):
     """
 
     def __init__(self, addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE):
-        # misaligned data accessは現状非サポート
-        assert util.is_power_of_2(data_shape.width), "Data width must be power of 2"
+        num_data_bytes = util.byte_width(data_shape.width)
+        byte_enable_shape = unsigned(num_data_bytes)
 
         super().__init__(
             {
@@ -136,6 +136,8 @@ class CoreBusReqSignature(wiring.Signature):
                 "addr_in": Out(addr_shape),
                 # 書き込みデータ (Read時は無視)
                 "data_in": Out(data_shape),
+                # Byte Enable Mask (Read/Writeともに有効)
+                "bytemask": Out(byte_enable_shape),
                 # 書き込み要求
                 "data_out": In(data_shape),
                 # 受付不可
