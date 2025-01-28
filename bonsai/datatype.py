@@ -1,10 +1,6 @@
-from enum import auto
-from typing import Optional
 from amaranth import unsigned
-import amaranth
 from amaranth.lib import data, wiring, enum
 from amaranth.lib.wiring import In, Out
-from amaranth.utils import log2_int
 
 from regfile import RegData, RegIndex
 import util
@@ -18,14 +14,11 @@ class AbortType(enum.Enum):
 
     # No Exception
     NONE = 0
-
-    # Misaligned Fetch
-    MISALIGNED_FETCH = 1
-
-    # Illegal Memory Operation
-    ILLEGAL_MEM_OP = 2
-
-    # Misaligned Memory Access
+    # Stage外部からのAbort要求
+    EXTERNAL_ABORT = 1
+    # IS stageで不正なアドレスをFetchしようとした
+    MISALIGNED_FETCH = 2
+    # ID stageで不正なアドレスをDecodeしようとした
     MISALIGNED_MEM_ACCESS = 3
 
 
@@ -167,6 +160,8 @@ class StagePipelineCtrlReqSignature(wiring.Signature):
                 "flush": Out(unsigned(1)),
                 # Abortして処理停止したStageのAbort状態解除が必要なときに1。clear解除まではstallが継続
                 "clear": Out(unsigned(1)),
+                # 強制的にAbort状態にするときに1
+                "abort": Out(unsigned(1)),
             }
         )
 

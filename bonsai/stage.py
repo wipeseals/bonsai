@@ -131,13 +131,17 @@ class InstSelectStage(wiring.Component):
             self.branch_strobe_src_addr.eq(0),
         ]
 
-        # Abort中ではなく有効なデータで、Flush/Stall/Clear中でない場合はデータ処理
+        # 外部Abort要求はprev_stage.enを無視して優先する
+        is_abort_req = (~is_aborted) & (self.pipeline_req_in.abort)
+        # Abort中/Abort要求中ではなく有効なデータで、Flush/Stall/Clear中でない場合はデータ処理
         req_valid = (
             (~is_aborted)
+            & (~is_abort_req)
             & (self.prev_stage.en)
             & (self.pipeline_req_in.flush == 0)
             & (self.pipeline_req_in.stall == 0)
             & (self.pipeline_req_in.clear == 0)
+            & (self.pipeline_req_in.abort == 0)
         )
         is_branch_req = (req_valid) & self.prev_stage.branch_req.en
         is_misaligned_branch_req = (is_branch_req) & (
@@ -151,7 +155,7 @@ class InstSelectStage(wiring.Component):
         with m.FSM(init="READY", domain="sync"):
             with m.State("ABORT"):
                 # Abort Clearが来ていた場合は解除
-                with m.If(self.pipeline_req_in.clear):
+                with m.If(self.pipeline_req_in.clear & ~self.pipeline_req_in.abort):
                     # Abort Clear
                     m.d.sync += [
                         abort_type.eq(AbortType.NONE),
@@ -160,7 +164,13 @@ class InstSelectStage(wiring.Component):
                     m.next = "READY"
             with m.State("READY"):
                 # main logic
-                with m.If(is_misaligned_branch_req):
+                with m.If(is_abort_req):
+                    # External Abort Request
+                    m.d.sync += [
+                        abort_type.eq(AbortType.EXTERNAL_ABORT),
+                    ]
+                    m.next = "ABORT"
+                with m.Elif(is_misaligned_branch_req):
                     # Illegal Branch Request
                     m.d.sync += [
                         abort_type.eq(AbortType.MISALIGNED_FETCH),
@@ -291,14 +301,17 @@ class InstFetchStage(wiring.Component):
             # Manage用にdata_inを設定
             self.lsu_req_out.data_in.eq(data_in),
         ]
-        # 有効なデータの条件
+        # 外部Abort要求はprev_stage.enを無視して優先する
+        is_abort_req = (~is_aborted) & (self.pipeline_req_in.abort)
         # 要求がValidでstall/flush/clear中ではなくReadを投げていて、MemoryがBusyでない
         req_valid = (
             (~is_aborted)
+            & (~is_abort_req)
             & (self.prev_stage.en)
             & (self.pipeline_req_in.flush == 0)
             & (self.pipeline_req_in.stall == 0)
             & (self.pipeline_req_in.clear == 0)
+            & (self.pipeline_req_in.abort == 0)
         )
         read_req_valid = (req_valid) & (op_type == LsuOperationType.READ_CACHE)
         read_done = (read_req_valid) & (self.lsu_req_out.busy == 0)
@@ -326,7 +339,7 @@ class InstFetchStage(wiring.Component):
                     self.next_stage.en.eq(0),
                 ]
                 # Abort Clearが来ていた場合は解除
-                with m.If(self.pipeline_req_in.clear):
+                with m.If(self.pipeline_req_in.clear & ~self.pipeline_req_in.abort):
                     # Abort Clear
                     m.d.sync += [
                         abort_type.eq(AbortType.NONE),
@@ -335,7 +348,13 @@ class InstFetchStage(wiring.Component):
             with m.State("READY"):
                 # TODO: Stall時の対応(無いはず?)
                 # TODO: Flush/Clear時の削除+ログ
-                with m.If(read_aborted):
+                with m.If(is_abort_req):
+                    # External Abort Request
+                    m.d.sync += [
+                        abort_type.eq(AbortType.EXTERNAL_ABORT),
+                    ]
+                    m.next = "ABORT"
+                with m.Elif(read_aborted):
                     # 次段にデータは送らない
                     m.d.comb += [
                         self.next_stage.en.eq(0),
