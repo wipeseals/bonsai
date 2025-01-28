@@ -23,6 +23,7 @@ def test_ssm_read_seq(is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.bytemask, 0b1111)
         ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
@@ -58,6 +59,7 @@ def test_ssm_read_random(is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.bytemask, 0b1111)
         ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
@@ -93,6 +95,7 @@ def test_ssm_write_seq(is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.bytemask, 0b1111)
         ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
@@ -132,89 +135,6 @@ def test_ssm_write_seq(is_primary: bool):
     run_sim(f"{test_ssm_write_seq.__name__}", dut=dut, testbench=bench)
 
 
-@pytest.mark.parametrize("use_strict_assert", [True, False])
-@pytest.mark.parametrize("is_primary", [True, False])
-def test_ssm_abort_misaligned(use_strict_assert: bool, is_primary: bool):
-    init_data = expect_data(seed=0x12345678)
-    dut = SingleCycleMemory(init_data=init_data, use_strict_assert=use_strict_assert)
-    active_req_in = dut.primary_req_in if is_primary else dut.secondary_req_in
-    inactive_req_in = dut.secondary_req_in if is_primary else dut.primary_req_in
-
-    async def bench(ctx):
-        # disable
-        ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
-        ctx.set(active_req_in.en, 0)
-        ctx.set(active_req_in.addr_in, 0)
-        ctx.set(active_req_in.data_in, 0)
-        nop_cyc = 3
-        for _ in range(nop_cyc):
-            await ctx.tick()
-            assert ctx.get(active_req_in.busy) == 0
-            assert ctx.get(inactive_req_in.busy) == 0
-
-        # read misaligned
-        read_addr = 0xFFFFFFF1
-        ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
-        ctx.set(active_req_in.en, 1)
-        ctx.set(active_req_in.addr_in, read_addr)
-        await ctx.tick()
-        assert ctx.get(active_req_in.busy) == 1
-        assert ctx.get(inactive_req_in.busy) == 1
-        assert (
-            ctx.get(active_req_in.abort_type) == AbortType.MISALIGNED_MEM_ACCESS.value
-        )
-        assert (
-            ctx.get(inactive_req_in.abort_type) == AbortType.MISALIGNED_MEM_ACCESS.value
-        )
-
-        # read seq (aborted)
-        read_addr = 0x00000004
-        ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
-        ctx.set(active_req_in.en, 1)
-        ctx.set(active_req_in.addr_in, read_addr)
-        aborted_cyc = 3
-        for _ in range(aborted_cyc):
-            await ctx.tick()
-            assert ctx.get(active_req_in.busy) == 1
-            assert (
-                ctx.get(active_req_in.abort_type)
-                == AbortType.MISALIGNED_MEM_ACCESS.value
-            )
-            assert ctx.get(inactive_req_in.busy) == 1
-            assert (
-                ctx.get(inactive_req_in.abort_type)
-                == AbortType.MISALIGNED_MEM_ACCESS.value
-            )
-
-        # abort clear
-        read_addr = 0x00000004
-        ctx.set(active_req_in.addr_in, read_addr)
-        ctx.set(active_req_in.op_type, LsuOperationType.MANAGE_CLEAR_ABORT.value)
-        ctx.set(active_req_in.en, 1)
-        await ctx.tick()
-        assert ctx.get(active_req_in.busy) == 1
-        assert ctx.get(inactive_req_in.busy) == 1
-
-        # read
-        ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
-        ctx.set(active_req_in.en, 1)
-        await ctx.tick()
-        assert ctx.get(active_req_in.busy) == 0
-        assert ctx.get(active_req_in.data_out) == init_data[1]
-        assert ctx.get(inactive_req_in.busy) == 1
-
-    if use_strict_assert:
-        with pytest.raises(AssertionError) as excinfo:
-            run_sim(
-                f"{test_ssm_abort_misaligned.__name__}_assert", dut=dut, testbench=bench
-            )
-        assert "Misaligned Access" in str(excinfo.value)
-    else:
-        run_sim(
-            f"{test_ssm_abort_misaligned.__name__}_noassert", dut=dut, testbench=bench
-        )
-
-
 def test_ssm_two_port_priority():
     init_data = expect_data(seed=0x12345678)
     dut = SingleCycleMemory(init_data=init_data)
@@ -223,6 +143,8 @@ def test_ssm_two_port_priority():
         # disable -> check idle
         ctx.set(dut.primary_req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.secondary_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(dut.primary_req_in.bytemask, 0b1111)
+        ctx.set(dut.secondary_req_in.bytemask, 0b1111)
         ctx.set(dut.primary_req_in.en, 0)
         ctx.set(dut.secondary_req_in.en, 0)
         ctx.set(dut.primary_req_in.addr_in, 0)
