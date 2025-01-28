@@ -117,7 +117,7 @@ class LsuOperationType(enum.Enum):
     MANAGE_PREFETCH = 11
 
 
-class CoreBusReqReqSignature(wiring.Signature):
+class CoreBusReqSignature(wiring.Signature):
     """
     キャッシュアクセス要求の信号
     """

@@ -7,7 +7,7 @@ from amaranth.utils import exact_log2
 
 import config
 import util
-from datatype import AbortType, CoreBusReqReqSignature, LsuOperationType
+from datatype import AbortType, CoreBusReqSignature, LsuOperationType
 
 
 class SingleCycleMemory(wiring.Component):
@@ -18,14 +18,10 @@ class SingleCycleMemory(wiring.Component):
 
     # Memory Access Port
     primary_req_in: In(
-        CoreBusReqReqSignature(
-            addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE
-        )
+        CoreBusReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
     )
     secondary_req_in: In(
-        CoreBusReqReqSignature(
-            addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE
-        )
+        CoreBusReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
     )
 
     def __init__(
