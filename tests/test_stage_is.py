@@ -317,3 +317,76 @@ def test_is_branch_to_misalign_addr(use_strict_assert: bool):
             dut=dut,
             testbench=bench,
         )
+
+
+def test_is_abort_by_external():
+    dut = InstSelectStage(
+        initial_pc=INITIAL_PC,
+        initial_uniq_id=INITIAL_UNIQ_ID,
+        lane_id=LANE_ID,
+    )
+
+    async def bench(ctx):
+        # enable & no flush/stall
+        ctx.set(dut.prev_stage.en, 1)
+        ctx.set(dut.pipeline_req_in.stall, 0)
+        ctx.set(dut.pipeline_req_in.flush, 0)
+        # no branch
+        ctx.set(dut.prev_stage.branch_req.en, 0)
+        ctx.set(dut.prev_stage.branch_req.next_pc, 0)
+
+        pre_cyc = 3
+        for cyc in range(pre_cyc):
+            await ctx.tick()
+            assert ctx.get(dut.next_stage.en) == 1
+            assert (
+                ctx.get(dut.next_stage.locate.pc)
+                == INITIAL_PC + config.INST_BYTE_WIDTH * cyc
+            )
+            assert ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + cyc
+
+        # external abort
+        ctx.set(dut.pipeline_req_in.abort, 1)
+        await ctx.tick()
+        assert ctx.get(dut.next_stage.en) == 0
+        assert ctx.get(dut.next_stage.abort_type) == AbortType.EXTERNAL_ABORT.value
+
+        # keep abort
+        ctx.set(dut.pipeline_req_in.abort, 0)
+        aborted_cyc = 3
+        for cyc in range(aborted_cyc):
+            await ctx.tick()
+            assert ctx.get(dut.next_stage.en) == 0
+            assert ctx.get(dut.next_stage.abort_type) == AbortType.EXTERNAL_ABORT.value
+
+        # not clear abort (abort=clear=1)
+        ctx.set(dut.pipeline_req_in.abort, 1)
+        ctx.set(dut.pipeline_req_in.clear, 1)
+        await ctx.tick()
+        assert ctx.get(dut.next_stage.en) == 0
+        assert ctx.get(dut.next_stage.abort_type) == AbortType.EXTERNAL_ABORT.value
+
+        # clear abort
+        ctx.set(dut.pipeline_req_in.abort, 0)
+        ctx.set(dut.pipeline_req_in.clear, 1)
+        await ctx.tick()
+        assert ctx.get(dut.next_stage.en) == 0
+        assert ctx.get(dut.next_stage.abort_type) == AbortType.NONE.value
+
+        # branch to aligned address
+        branch_pc = 0x2000
+        ctx.set(dut.pipeline_req_in.clear, 0)
+        ctx.set(dut.prev_stage.branch_req.en, 1)
+        ctx.set(dut.prev_stage.branch_req.next_pc, branch_pc)
+        await ctx.tick()
+        assert ctx.get(dut.next_stage.en) == 1
+        assert ctx.get(dut.next_stage.locate.pc) == branch_pc
+        assert (
+            ctx.get(dut.next_stage.locate.uniq_id) == INITIAL_UNIQ_ID + pre_cyc
+        ), "uniq_id is not cleared"
+
+    run_sim(
+        f"{test_is_abort_by_external.__name__}",
+        dut=dut,
+        testbench=bench,
+    )
