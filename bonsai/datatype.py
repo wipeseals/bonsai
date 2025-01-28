@@ -124,7 +124,7 @@ class LsuOperationType(enum.Enum):
     MANAGE_PREFETCH = 11
 
 
-class LsuReqSignature(wiring.Signature):
+class CoreBusReqReqSignature(wiring.Signature):
     """
     キャッシュアクセス要求の信号
     """
@@ -135,6 +135,8 @@ class LsuReqSignature(wiring.Signature):
 
         super().__init__(
             {
+                # Enable (Slave Select)
+                "en": Out(unsigned(1)),
                 # Write Back, Write Through, Non Cached
                 "op_type": Out(LsuOperationType),
                 # アクセスアドレス

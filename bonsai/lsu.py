@@ -7,20 +7,25 @@ from amaranth.utils import exact_log2
 
 import config
 import util
-from datatype import AbortType, LsuReqSignature, LsuOperationType
+from datatype import AbortType, CoreBusReqReqSignature, LsuOperationType
 
 
 class SingleCycleMemory(wiring.Component):
     """
     低Latencyでアクセス可能な小容量のメモリ。Cache関連の命令は無視して取り扱う
+    Cache Missしてほしくないデータ置き場、もしくはSimulation時のProgram置き場を想定
     """
 
     # Memory Access Port
     primary_req_in: In(
-        LsuReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
+        CoreBusReqReqSignature(
+            addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE
+        )
     )
     secondary_req_in: In(
-        LsuReqSignature(addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE)
+        CoreBusReqReqSignature(
+            addr_shape=config.ADDR_SHAPE, data_shape=config.DATA_SHAPE
+        )
     )
 
     def __init__(
@@ -57,8 +62,12 @@ class SingleCycleMemory(wiring.Component):
         rd_port: ReadPort = mem.read_port(domain="comb")
 
         # Primary Port > Secondary Portの優先度で動く
-        is_primary_req = self.primary_req_in.op_type != LsuOperationType.NOP
-        is_secondary_req = self.secondary_req_in.op_type != LsuOperationType.NOP
+        is_primary_req = (self.primary_req_in.en) & (
+            self.primary_req_in.op_type != LsuOperationType.NOP
+        )
+        is_secondary_req = (self.secondary_req_in.en) & (
+            self.secondary_req_in.op_type != LsuOperationType.NOP
+        )
         op_type = Mux(
             is_primary_req, self.primary_req_in.op_type, self.secondary_req_in.op_type
         )

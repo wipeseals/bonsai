@@ -23,6 +23,7 @@ def test_ssm_read_seq(is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
         nop_cyc = 3
@@ -33,6 +34,7 @@ def test_ssm_read_seq(is_primary: bool):
 
         # read incremental
         ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         for data_idx, exp_data in enumerate(init_data):
             read_addr = data_idx * 4
             ctx.set(active_req_in.addr_in, read_addr)
@@ -56,6 +58,7 @@ def test_ssm_read_random(is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
         nop_cyc = 3
@@ -66,6 +69,7 @@ def test_ssm_read_random(is_primary: bool):
 
         # read random
         ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         for read_addr in random_access_address_list:
             data_idx = read_addr // 4
             exp_data = init_data[data_idx]
@@ -89,6 +93,7 @@ def test_ssm_write_seq(is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
         nop_cyc = 3
@@ -102,6 +107,7 @@ def test_ssm_write_seq(is_primary: bool):
             return 0xFFFFFFFF - data
 
         ctx.set(active_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         for data_idx, exp_data in enumerate(init_data):
             write_addr = data_idx * 4
             write_data = process_data(exp_data)
@@ -115,6 +121,7 @@ def test_ssm_write_seq(is_primary: bool):
 
         # read verify
         ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         for data_idx, exp_data in enumerate(init_data):
             read_addr = data_idx * 4
             ctx.set(active_req_in.addr_in, read_addr)
@@ -136,6 +143,7 @@ def test_ssm_abort_misaligned(use_strict_assert: bool, is_primary: bool):
     async def bench(ctx):
         # disable
         ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.en, 0)
         ctx.set(active_req_in.addr_in, 0)
         ctx.set(active_req_in.data_in, 0)
         nop_cyc = 3
@@ -147,6 +155,7 @@ def test_ssm_abort_misaligned(use_strict_assert: bool, is_primary: bool):
         # read misaligned
         read_addr = 0xFFFFFFF1
         ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         ctx.set(active_req_in.addr_in, read_addr)
         await ctx.tick()
         assert ctx.get(active_req_in.busy) == 1
@@ -161,6 +170,7 @@ def test_ssm_abort_misaligned(use_strict_assert: bool, is_primary: bool):
         # read seq (aborted)
         read_addr = 0x00000004
         ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         ctx.set(active_req_in.addr_in, read_addr)
         aborted_cyc = 3
         for _ in range(aborted_cyc):
@@ -180,12 +190,14 @@ def test_ssm_abort_misaligned(use_strict_assert: bool, is_primary: bool):
         read_addr = 0x00000004
         ctx.set(active_req_in.addr_in, read_addr)
         ctx.set(active_req_in.op_type, LsuOperationType.MANAGE_CLEAR_ABORT.value)
+        ctx.set(active_req_in.en, 1)
         await ctx.tick()
         assert ctx.get(active_req_in.busy) == 1
         assert ctx.get(inactive_req_in.busy) == 1
 
         # read
         ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
         await ctx.tick()
         assert ctx.get(active_req_in.busy) == 0
         assert ctx.get(active_req_in.data_out) == init_data[1]
@@ -211,6 +223,8 @@ def test_ssm_two_port_priority():
         # disable -> check idle
         ctx.set(dut.primary_req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.secondary_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(dut.primary_req_in.en, 0)
+        ctx.set(dut.secondary_req_in.en, 0)
         ctx.set(dut.primary_req_in.addr_in, 0)
         ctx.set(dut.secondary_req_in.addr_in, 0)
         ctx.set(dut.primary_req_in.data_in, 0)
@@ -223,6 +237,8 @@ def test_ssm_two_port_priority():
         # Secondary: Write 0xbbbbbbbb (reject)
         ctx.set(dut.primary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
         ctx.set(dut.secondary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(dut.primary_req_in.en, 1)
+        ctx.set(dut.secondary_req_in.en, 1)
         ctx.set(dut.primary_req_in.addr_in, 0)
         ctx.set(dut.secondary_req_in.addr_in, 0)
         ctx.set(dut.primary_req_in.data_in, 0xAAAAAAAA)
@@ -231,22 +247,27 @@ def test_ssm_two_port_priority():
         assert ctx.get(dut.primary_req_in.busy) == 0
         assert ctx.get(dut.secondary_req_in.busy) == 1
 
-        # Primary: NOP
+        # Primary: Write(en=0) (reject)
         # Secondary: Write 0xcccccccc (accept)
-        ctx.set(dut.primary_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(dut.primary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
         ctx.set(dut.secondary_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(dut.primary_req_in.en, 0)  # disable
+        ctx.set(dut.secondary_req_in.en, 1)
         ctx.set(dut.primary_req_in.addr_in, 4)
         ctx.set(dut.secondary_req_in.addr_in, 4)
-        ctx.set(dut.secondary_req_in.data_in, 0xCCCCCCCC)
+        ctx.set(dut.primary_req_in.data_in, 0xCCCCCCCC)
+        ctx.set(dut.secondary_req_in.data_in, 0xDDDDDDDD)
         await ctx.tick()
         assert ctx.get(dut.primary_req_in.busy) == 1
         assert ctx.get(dut.secondary_req_in.busy) == 0
-        assert ctx.get(dut.secondary_req_in.data_out) == 0xCCCCCCCC
+        assert ctx.get(dut.secondary_req_in.data_out) == 0xDDDDDDDD
 
         # Primary: Read 0x00000000 (accept)
         # Secondary: Read 0x00000000 (reject)
         ctx.set(dut.primary_req_in.op_type, LsuOperationType.READ_CACHE.value)
         ctx.set(dut.secondary_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(dut.primary_req_in.en, 1)
+        ctx.set(dut.secondary_req_in.en, 1)
         ctx.set(dut.primary_req_in.addr_in, 0)
         ctx.set(dut.secondary_req_in.addr_in, 0)
         await ctx.tick()
@@ -258,10 +279,12 @@ def test_ssm_two_port_priority():
         # Secondary: Read 0x00000000 (accept)
         ctx.set(dut.primary_req_in.op_type, LsuOperationType.NOP.value)
         ctx.set(dut.secondary_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(dut.primary_req_in.en, 1)
+        ctx.set(dut.secondary_req_in.en, 1)
         ctx.set(dut.secondary_req_in.addr_in, 4)
         await ctx.tick()
         assert ctx.get(dut.primary_req_in.busy) == 1
         assert ctx.get(dut.secondary_req_in.busy) == 0
-        assert ctx.get(dut.secondary_req_in.data_out) == 0xCCCCCCCC
+        assert ctx.get(dut.secondary_req_in.data_out) == 0xDDDDDDDD
 
     run_sim(f"{test_ssm_two_port_priority.__name__}", dut=dut, testbench=bench)

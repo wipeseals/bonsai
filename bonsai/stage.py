@@ -10,7 +10,7 @@ from datatype import (
     InstDecodeReqSignature,
     InstFetchReqSignature,
     InstSelectReqSignature,
-    LsuReqSignature,
+    CoreBusReqReqSignature,
     LsuOperationType,
     StagePipelineCtrlReqSignature,
 )
@@ -265,7 +265,7 @@ class InstFetchStage(wiring.Component):
 
     # Memory Access Port
     # LSU自体に優先Portを別途実装してあるため、IF stageでの2要求の考慮は不要
-    lsu_req_out: Out(LsuReqSignature())
+    lsu_req_out: Out(CoreBusReqReqSignature())
 
     def __init__(
         self, lane_id: int = 0, use_strict_assert: bool = config.USE_STRICT_ASSERT
