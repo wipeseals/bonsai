@@ -3,7 +3,7 @@ import pytest
 
 from bonsai.lsu import SingleCycleMemory
 from bonsai.datatype import AbortType, LsuOperationType
-from tests.testutil import run_sim
+from tests.util import run_sim
 
 
 def expect_data(seed: int = 0, depth: int = 128) -> List[int]:

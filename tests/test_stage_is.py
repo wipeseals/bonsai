@@ -2,7 +2,7 @@ from bonsai import config
 from bonsai.datatype import AbortType
 from bonsai.stage import InstSelectStage
 
-from tests.testutil import run_sim
+from tests.util import run_sim
 import pytest
 
 INITIAL_PC: int = 0x1000
