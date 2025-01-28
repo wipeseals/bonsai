@@ -1,12 +1,6 @@
-import sys
-from typing import List
-from amaranth import Module, Print
-from bonsai import config
+from amaranth import Module
 from bonsai.log import Kanata
-import os
 
-from amaranth.sim import Simulator
-from amaranth.lib import wiring
 
 from tests.util import run_sim
 
