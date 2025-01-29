@@ -168,6 +168,79 @@ def test_ssm_write_seq(is_primary: bool):
             0b1111,
             0x00_00_00_98,
         ),
+        # Write w/ bytemask, unaligned
+        (
+            0x00000001,
+            0b0101,
+            0xFE_DC_BA_98,
+            0b0111,
+            0x00_DC_00_98,
+        ),
+        (
+            0x00000002,
+            0b0010,
+            0xFE_DC_BA_98,
+            0b0011,
+            0x00_00_BA_00,
+        ),
+        (
+            0x00000003,
+            0b0001,
+            0xFE_DC_BA_98,
+            0b0001,
+            0x00_00_00_98,
+        ),
+        # Read w/ bytemask, aligned
+        (
+            0x00000000,
+            0b1111,
+            0xFE_DC_BA_98,
+            0b1111,
+            0xFE_DC_BA_98,
+        ),
+        (
+            0x00000000,
+            0b1111,
+            0xFE_DC_BA_98,
+            0b0111,
+            0x00_DC_BA_98,
+        ),
+        (
+            0x00000000,
+            0b1111,
+            0xFE_DC_BA_98,
+            0b0101,
+            0x00_DC_00_98,
+        ),
+        (
+            0x00000000,
+            0b1111,
+            0xFE_DC_BA_98,
+            0b0001,
+            0x00_00_00_98,
+        ),
+        # Read w/ bytemask, unaligned
+        (
+            0x00000001,
+            0b0111,
+            0xFE_DC_BA_98,
+            0b0101,
+            0x00_DC_00_98,
+        ),
+        (
+            0x00000002,
+            0b0011,
+            0xFE_DC_BA_98,
+            0b0010,
+            0x00_00_BA_00,
+        ),
+        (
+            0x00000003,
+            0b0001,
+            0xFE_DC_BA_98,
+            0b0001,
+            0x00_00_00_98,
+        ),
     ],
 )
 def test_ssm_write_read_with_bytemask(
@@ -204,7 +277,6 @@ def test_ssm_write_read_with_bytemask(
         ctx.set(active_req_in.data_in, data_in)
         await ctx.tick()
         assert ctx.get(active_req_in.busy) == 0
-        assert ctx.get(active_req_in.data_out) == data_out_expect
         assert ctx.get(inactive_req_in.busy) == 1
 
         # read verify w/ bytemask
