@@ -447,7 +447,9 @@ def test_ssm_write_byte_increment(
             ctx.set(active_req_in.en, 1)
             ctx.set(active_req_in.addr_in, 0 + addr_offset)
             ctx.set(active_req_in.bytemask, bytemask_wr)
-            ctx.set(active_req_in.data_in, write_data)
+            ctx.set(
+                active_req_in.data_in, write_data >> (addr_offset * 8)
+            )  # 1byteずつ書き込み
             await ctx.tick()
             assert ctx.get(active_req_in.busy) == 0
             assert ctx.get(inactive_req_in.busy) == 1
