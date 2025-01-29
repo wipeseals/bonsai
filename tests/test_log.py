@@ -1,14 +1,8 @@
-import sys
-from typing import List
-from amaranth import Module, Print
-from bonsai import config
+from amaranth import Module
 from bonsai.log import Kanata
-import os
 
-from amaranth.sim import Simulator
-from amaranth.lib import wiring
 
-from tests.testutil import run_sim
+from tests.util import run_sim
 
 
 def test_kanata_print_samplelog():
@@ -59,10 +53,9 @@ S	1	0	Rn	// 命令1のFステージ開始
         await ctx.tick()
 
     # 標準出力を奪って確認
-    log_path = config.dist_file_path("test_print_example.log")
-    sys.stdout = open(log_path, "w", encoding="utf-8")
-    run_sim(f"{test_kanata_print_samplelog.__name__}", dut=dut, testbench=bench)
-    sys.stdout = sys.__stdout__
+    log_path = run_sim(
+        f"{test_kanata_print_samplelog.__name__}", dut=dut, testbench=bench
+    )
 
     exp_lines = [
         line.split("//")[0].rstrip()
