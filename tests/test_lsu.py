@@ -291,6 +291,119 @@ def test_ssm_write_read_with_bytemask(
     run_sim(f"{test_ssm_write_read_with_bytemask.__name__}", dut=dut, testbench=bench)
 
 
+@pytest.mark.parametrize("is_primary", [True, False])
+def test_ssm_bytewrite(
+    is_primary: bool,
+):
+    init_data = expect_data(seed=0x0, step=0)  # All Zero
+    dut = SingleCycleMemory(init_data=init_data, use_strict_assert=True)
+    active_req_in = dut.primary_req_in if is_primary else dut.secondary_req_in
+    inactive_req_in = dut.secondary_req_in if is_primary else dut.primary_req_in
+
+    async def bench(ctx):
+        # disable
+        ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.bytemask, 0b1111)
+        ctx.set(active_req_in.en, 0)
+        ctx.set(active_req_in.addr_in, 0)
+        ctx.set(active_req_in.data_in, 0)
+        nop_cyc = 1
+        for _ in range(nop_cyc):
+            await ctx.tick()
+            assert ctx.get(active_req_in.busy) == 0
+            assert ctx.get(inactive_req_in.busy) == 0
+
+        # read word
+        ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
+        ctx.set(active_req_in.addr_in, 0)
+        ctx.set(active_req_in.bytemask, 0b1111)
+        await ctx.tick()
+        assert ctx.get(active_req_in.busy) == 0
+        assert ctx.get(active_req_in.data_out) == 0x00_00_00_00
+        assert ctx.get(inactive_req_in.busy) == 1
+
+        # write w/ bytemask
+        # bytemaskを1bitずつ変えて書き込み、読み出しを確認
+        write_data = 0x89_AB_CD_EF
+        for byte_enable_pos in range(4):
+            # write byte
+            bytemask_wr = 0b0001 << byte_enable_pos
+
+            ctx.set(active_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+            ctx.set(active_req_in.en, 1)
+            ctx.set(active_req_in.addr_in, 0)
+            ctx.set(active_req_in.bytemask, bytemask_wr)
+            ctx.set(active_req_in.data_in, write_data)
+            await ctx.tick()
+            assert ctx.get(active_req_in.busy) == 0
+            assert ctx.get(inactive_req_in.busy) == 1
+
+            # read word
+            read_expect = write_data & ~(0xFFFFFFFF << ((byte_enable_pos + 1) * 8))
+
+            ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+            ctx.set(active_req_in.en, 1)
+            ctx.set(active_req_in.addr_in, 0)
+            ctx.set(active_req_in.bytemask, 0b1111)
+            await ctx.tick()
+            assert ctx.get(active_req_in.busy) == 0
+            assert ctx.get(active_req_in.data_out) == read_expect
+            assert ctx.get(inactive_req_in.busy) == 1
+
+    run_sim(f"{test_ssm_bytewrite.__name__}", dut=dut, testbench=bench)
+
+
+@pytest.mark.parametrize("is_primary", [True, False])
+def test_ssm_byteread(
+    is_primary: bool,
+):
+    init_data = expect_data(seed=0x0, step=0)  # All Zero
+    dut = SingleCycleMemory(init_data=init_data, use_strict_assert=True)
+    active_req_in = dut.primary_req_in if is_primary else dut.secondary_req_in
+    inactive_req_in = dut.secondary_req_in if is_primary else dut.primary_req_in
+
+    async def bench(ctx):
+        # disable
+        ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.bytemask, 0b1111)
+        ctx.set(active_req_in.en, 0)
+        ctx.set(active_req_in.addr_in, 0)
+        ctx.set(active_req_in.data_in, 0)
+        nop_cyc = 1
+        for _ in range(nop_cyc):
+            await ctx.tick()
+            assert ctx.get(active_req_in.busy) == 0
+            assert ctx.get(inactive_req_in.busy) == 0
+
+        # write word
+        write_data = 0x89_AB_CD_EF
+        ctx.set(active_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(active_req_in.en, 1)
+        ctx.set(active_req_in.addr_in, 0)
+        ctx.set(active_req_in.bytemask, 0b1111)
+        ctx.set(active_req_in.data_in, write_data)
+        await ctx.tick()
+        assert ctx.get(active_req_in.busy) == 0
+        assert ctx.get(inactive_req_in.busy) == 1
+
+        # read w/ bytemask
+        # bytemaskを1bitずつ変えて読み出し、読み出しを確認
+        for byte_enable_pos in reversed(range(4)):
+            bytemask_rd = 0b0001 << byte_enable_pos
+            read_expect = write_data & (0xFF << (byte_enable_pos * 8))
+            ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE)
+            ctx.set(active_req_in.en, 1)
+            ctx.set(active_req_in.addr_in, 0)
+            ctx.set(active_req_in.bytemask, bytemask_rd)
+            await ctx.tick()
+            assert ctx.get(active_req_in.busy) == 0
+            assert ctx.get(active_req_in.data_out) == read_expect
+            assert ctx.get(inactive_req_in.busy) == 1
+
+    run_sim(f"{test_ssm_byteread.__name__}", dut=dut, testbench=bench)
+
+
 @pytest.mark.parametrize("use_strict_assert", [True, False])
 @pytest.mark.parametrize("is_primary", [True, False])
 @pytest.mark.parametrize(
