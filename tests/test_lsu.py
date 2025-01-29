@@ -6,11 +6,11 @@ from bonsai.datatype import AbortType, LsuOperationType
 from tests.util import run_sim
 
 
-def expect_data(seed: int = 0, depth: int = 128) -> List[int]:
+def expect_data(seed: int = 0, step: int = 1, depth: int = 128) -> List[int]:
     """
     Generate expected data
     """
-    return list([(seed + i) & 0xFFFFFFFF for i in range(depth)])
+    return list([((seed + i) * step) & 0xFFFFFFFF for i in range(depth)])
 
 
 @pytest.mark.parametrize("is_primary", [True, False])
@@ -133,6 +133,90 @@ def test_ssm_write_seq(is_primary: bool):
             assert ctx.get(inactive_req_in.busy) == 1
 
     run_sim(f"{test_ssm_write_seq.__name__}", dut=dut, testbench=bench)
+
+
+@pytest.mark.parametrize("is_primary", [True, False])
+@pytest.mark.parametrize(
+    "addr_in,bytemask_wr,data_in,bytemask_rd,data_out_expect",
+    [
+        # Write w/ bytemask, aligned
+        (
+            0x00000000,
+            0b1111,
+            0xFE_DC_BA_98,
+            0b1111,
+            0xFE_DC_BA_98,
+        ),
+        (
+            0x00000000,
+            0b0111,
+            0xFE_DC_BA_98,
+            0b1111,
+            0x00_DC_BA_98,
+        ),
+        (
+            0x00000000,
+            0b0101,
+            0xFE_DC_BA_98,
+            0b1111,
+            0x00_DC_00_98,
+        ),
+        (
+            0x00000000,
+            0b0001,
+            0xFE_DC_BA_98,
+            0b1111,
+            0x00_00_00_98,
+        ),
+    ],
+)
+def test_ssm_write_read_with_bytemask(
+    is_primary: bool,
+    addr_in: int,
+    bytemask_wr: int,
+    data_in: int,
+    bytemask_rd: int,
+    data_out_expect: int,
+):
+    init_data = expect_data(seed=0x0, step=0)  # All Zero
+    dut = SingleCycleMemory(init_data=init_data, use_strict_assert=True)
+    active_req_in = dut.primary_req_in if is_primary else dut.secondary_req_in
+    inactive_req_in = dut.secondary_req_in if is_primary else dut.primary_req_in
+
+    async def bench(ctx):
+        # disable
+        ctx.set(active_req_in.op_type, LsuOperationType.NOP.value)
+        ctx.set(active_req_in.bytemask, 0b1111)
+        ctx.set(active_req_in.en, 0)
+        ctx.set(active_req_in.addr_in, 0)
+        ctx.set(active_req_in.data_in, 0)
+        nop_cyc = 1
+        for _ in range(nop_cyc):
+            await ctx.tick()
+            assert ctx.get(active_req_in.busy) == 0
+            assert ctx.get(inactive_req_in.busy) == 0
+
+        # write w/ bytemask
+        ctx.set(active_req_in.op_type, LsuOperationType.WRITE_CACHE.value)
+        ctx.set(active_req_in.en, 1)
+        ctx.set(active_req_in.addr_in, addr_in)
+        ctx.set(active_req_in.bytemask, bytemask_wr)
+        ctx.set(active_req_in.data_in, data_in)
+        await ctx.tick()
+        assert ctx.get(active_req_in.busy) == 0
+        assert ctx.get(active_req_in.data_out) == data_out_expect
+        assert ctx.get(inactive_req_in.busy) == 1
+
+        # read verify w/ bytemask
+        ctx.set(active_req_in.op_type, LsuOperationType.READ_CACHE.value)
+        ctx.set(active_req_in.en, 1)
+        ctx.set(active_req_in.bytemask, bytemask_rd)
+        await ctx.tick()
+        assert ctx.get(active_req_in.busy) == 0
+        assert ctx.get(active_req_in.data_out) == data_out_expect
+        assert ctx.get(inactive_req_in.busy) == 1
+
+    run_sim(f"{test_ssm_write_read_with_bytemask.__name__}", dut=dut, testbench=bench)
 
 
 @pytest.mark.parametrize("use_strict_assert", [True, False])
