@@ -1,3 +1,4 @@
+from operator import is_
 from typing import List
 from amaranth import Assert, Const, Format, Module, Mux, Shape, Signal, unsigned
 from amaranth.lib import wiring, memory
@@ -95,6 +96,13 @@ class SingleCycleMemory(wiring.Component):
         mem_word_idx = addr_in >> self._addr_offset_bits  # offset切り捨て
         mem_byte_offset = addr_in.bit_select(0, self._addr_offset_bits)  # offset部分
 
+        # bytemask有効 & byte_offset + bitpos がbytenableのpos byte以上の場合は次のワードにまたがっている
+        # e.g. addr=0x0009, bytemask=0b1000
+        is_aligned = Signal(1, init=1)
+        for i in range(WREN_BIT_WIDTH):
+            with m.If(bytemask[i] & (mem_byte_offset + i >= self._data_bytes)):
+                m.d.comb += is_aligned.eq(0)
+
         # bytemask は1bit=8byteを示すデータなので実際のマスクを作成
         # e.g. bytemask=0b0010 -> datamask=0b00000000_00000000_11111111_00000000
         datamask = Signal(self._data_shape)
@@ -128,9 +136,9 @@ class SingleCycleMemory(wiring.Component):
         #      data_in       = (0x0000abcd & 0x000000ff) << 8 = 0x0000ab00
         #      write_en_bits = 0b0001 << 1 = 0b0010            (0x0000ff00相当)
         write_en_bits = (bytemask << mem_byte_offset).bit_select(0, WREN_BIT_WIDTH)
-        # AbortしていないかつWrite要求の場合のみ許可。1cycで済むのでbusy不要。wrenは遅延させたくないのでcomb
+        # Abortしていないかつalignに問題がなくWrite要求の場合のみ許可。1cycで済むのでbusy不要でwrenは遅延させたくないのでcomb
         write_en = Signal(unsigned(WREN_BIT_WIDTH), init=0)
-        with m.If(abort_type == AbortType.NONE):
+        with m.If((abort_type == AbortType.NONE) & is_aligned):
             with m.Switch(op_type):
                 with m.Case(
                     LsuOperationType.WRITE_CACHE,
@@ -178,6 +186,7 @@ class SingleCycleMemory(wiring.Component):
                 self.secondary_req_in.busy.eq(0),
             ]
 
+        # Abort Control
         with m.FSM(init="READY", domain="sync"):
             with m.State("ABORT"):
                 # (default) keep ABORT state
@@ -199,7 +208,26 @@ class SingleCycleMemory(wiring.Component):
                     with m.Default():
                         pass
             with m.State("READY"):
-                pass
+                with m.If(is_aligned):
+                    pass
+                with m.Else():
+                    # misaligned access
+                    m.d.sync += [
+                        self.primary_req_in.busy.eq(1),
+                        self.secondary_req_in.busy.eq(1),
+                        abort_type.eq(AbortType.MISALIGNED_MEM_ACCESS),
+                    ]
+                    m.next = "ABORT"
+
+                    if self._use_strict_assert:
+                        m.d.sync += [
+                            Assert(
+                                0,
+                                Format(
+                                    "Misaligned Access Error. addr:{:016x}", addr_in
+                                ),
+                            ),
+                        ]
 
         return m
 
