@@ -1,4 +1,4 @@
-from amaranth import Module, Signal, unsigned
+from amaranth import Module, Signal
 from amaranth.lib import data
 import config
 

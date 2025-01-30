@@ -26,20 +26,7 @@ $ uv python install
 $ uv sync --all-extras --dev
 
 # Run all simulations
-$ uv run pytest
-```
-
-## Generate Verilog
-
-```bash
-# Generate Verilog for any design
-$ uv run bonsai/<design name>.py
-
-# Example
-$ uv run bonsai/stage.py
-
-# TODO: add main design file
-
+$ task test
 ```
 
 ### Use Docker Compose
@@ -47,6 +34,19 @@ $ uv run bonsai/stage.py
 ```bash
 $ docker-compose run bonsai
 ```
+
+## Available Tasks
+
+The following tasks are available via `taskipy`:
+
+- `task run`: Run the main script.
+- `task test`: Run all tests.
+- `task cov`: Run tests with coverage report.
+- `task check`: Run `ruff` to check code style.
+- `task format`: Run `ruff` to format code.
+- `task docs-serve`: Serve the documentation locally.
+- `task docs-build`: Build the documentation.
+- `task mypy`: Run `mypy` for type checking.
 
 ## License
 

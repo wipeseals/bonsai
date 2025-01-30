@@ -1,0 +1,14 @@
+site_name: bonsai
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.expand
+    - navigation.sidebar
+    - navigation.sticky
+    - navigation.next
+    - navigation.prev
+    - navigation.toc
+    - navigation.search
+nav:
+  - Home: index.md

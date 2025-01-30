@@ -1,5 +1,4 @@
 from enum import Flag, auto
-from operator import is_
 from amaranth import Assert, Format, Module, Signal, unsigned
 from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
