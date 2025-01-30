@@ -1,8 +1,7 @@
 from amaranth import Module
+
 from bonsai.log import Kanata
-
-
-from tests.util import run_sim
+from bonsai.util import Simulation
 
 
 def test_kanata_print_samplelog():
@@ -53,17 +52,18 @@ S	1	0	Rn	// 命令1のFステージ開始
         await ctx.tick()
 
     # 標準出力を奪って確認
-    log_path = run_sim(
+    result = Simulation.run(
         f"{test_kanata_print_samplelog.__name__}", dut=dut, testbench=bench
     )
 
+    # verify generated log
     exp_lines = [
         line.split("//")[0].rstrip()
         for line in exp_log.splitlines()
         if len(line.strip()) > 0
     ]
 
-    with open(log_path, "r", encoding="utf-8") as f:
+    with open(result.log_path, "r", encoding="utf-8") as f:
         act_log = f.read()
         act_lines = [
             line.split("//")[0].rstrip()

@@ -1,12 +1,15 @@
-import argparse
+from amaranth import Module
+from amaranth.lib import wiring
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--name", help="Your name")
-    args = parser.parse_args()
-    print(f"TODO: implement. args={args}")
+class Top(wiring.Component):
+    """
+    Top Component
+    """
 
+    def __init__(self):
+        super().__init__()
 
-if __name__ == "__main__":
-    main()
+    def elaborate(self, platform):
+        m = Module()
+        return m

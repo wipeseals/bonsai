@@ -1,5 +1,6 @@
 from enum import IntEnum
 from typing import Optional
+
 from amaranth import Format, Print
 
 
