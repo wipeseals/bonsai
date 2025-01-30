@@ -1,7 +1,13 @@
+.coverage
+.mypy_cache
+.pytest_cache
+.ruff_cache
 .venv
+*.v
 *.vcd
 __pycache__
-dist
-.pytest_cache
 bonsai.egg-info
-*.v
+coverage.xml
+dist/
+htmlcov/
+site/
