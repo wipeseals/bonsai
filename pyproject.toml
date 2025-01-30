@@ -32,6 +32,7 @@ amaranth-boards = { git = "https://github.com/amaranth-lang/amaranth-boards.git"
 amaranth-soc = { git = "https://github.com/amaranth-lang/amaranth-soc.git" }
 
 [tool.taskipy.tasks]
+run = "python bonsai/top.py"
 test = "pytest -v --ff -rfs"
 cov = "pytest --cov bonsai --cov-report term --cov-report xml"
 check = "ruff check --fix"
@@ -39,7 +40,6 @@ format = "ruff format"
 docs-serve = "mkdocs serve"
 docs-build = "mkdocs build"
 mypy = "mypy bonsai"
-
 
 [tool.mypy]
 python_version = "3.12"
