@@ -1,5 +1,6 @@
 from amaranth import Module
 from amaranth.lib import wiring
+from core import Core
 
 
 class Top(wiring.Component):
@@ -12,4 +13,5 @@ class Top(wiring.Component):
 
     def elaborate(self, platform):
         m = Module()
+        m.submodules.core = core = Core()
         return m

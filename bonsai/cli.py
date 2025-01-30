@@ -17,7 +17,7 @@ def generate_all_verilog_files() -> None:
         target_components, desc="Generating Verilog files", unit="file"
     ):
         filename = f"{component.__class__.__name__}"
-        logging.info(f"Generating {filename}.v")
+        logging.debug(f"Generating {filename}.v")
         util.export_verilog_file(
             component=component,
             name=filename,
@@ -28,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--log-level",
-        default="INFO",
+        default="DEBUG",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level",
     )
