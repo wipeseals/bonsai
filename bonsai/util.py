@@ -1,6 +1,4 @@
-from amaranth import Signal
 from amaranth.back import verilog
-from amaranth.lib import wiring
 from amaranth.lib.wiring import Component
 
 import config
