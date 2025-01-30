@@ -8,7 +8,7 @@ class Top(wiring.Component):
     """
 
     def __init__(self):
-        super().__init__()
+        super().__init__({})
 
     def elaborate(self, platform):
         m = Module()

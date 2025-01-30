@@ -11,6 +11,7 @@ dependencies = [
     "asyncio>=3.4.3",
     "pydantic>=2.10.2",
     "taskipy>=1.14.1",
+    "tqdm>=4.67.1",
 ]
 
 [dependency-groups]
