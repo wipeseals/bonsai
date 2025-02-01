@@ -1,6 +1,6 @@
 from amaranth import Module
 from amaranth.lib import wiring
-from core import Core
+from bonsai.bus import WishboneMaster
 
 
 class Top(wiring.Component):
@@ -13,5 +13,5 @@ class Top(wiring.Component):
 
     def elaborate(self, platform):
         m = Module()
-        m.submodules.core = core = Core()
+        m.submodules.core = core = WishboneMaster()
         return m

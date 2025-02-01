@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 import pydantic
 from amaranth import Module
-from amaranth.lib import wiring
+from amaranth.lib import enum, wiring
 from amaranth.lib.wiring import In, Out
 from pydantic.dataclasses import dataclass
 
@@ -23,6 +23,26 @@ class WishboneTag:
     width: int
 
 
+@enum.unique
+class CycleType(enum.IntEnumm):
+    CLASSIC = 0b000  # Required
+    CONST_ADDR_BURST = 0b001  # Optional: Same address
+    INCR_ADDR_BURST = 0b010  # Optional: Incrementing address
+    RESERVED_3 = 0b011
+    RESERVED_4 = 0b100
+    RESERVED_5 = 0b101
+    RESERVED_6 = 0b110
+    END_OF_BURST = 0b111
+
+
+@enum.unique
+class BurstTypeExtension(enum.IntEnum):
+    LINEAR = 0b00  # Required: 1,2,3,4,5,6,7,8
+    WRAP_BEAT_4 = 0b01  # Optional: Wrap after 4 beats. 1,2,3,0,1,2,3,0
+    WRAP_BEAT_8 = 0b10  # Optional: Wrap after 8 beats. 1,2,3,4,5,6,7,0
+    WRAP_BEAT_16 = 0b11  # Optional: Wrap after 16 beats
+
+
 @dataclass
 class WishboneSpec:
     """
@@ -39,6 +59,7 @@ class WishboneSpec:
         support_tgd_o (Optional[WishboneTag]): The tag support for the data output bus.
         support_tgc_o (Optional[WishboneTag]): The tag support for the cycle bus.
         endian (Optional[Literal["little", "big"]]): The endianness of the Wishbone bus.
+
     """
 
     port_size: Literal[8, 16, 32, 64]
@@ -47,6 +68,8 @@ class WishboneSpec:
     support_err_i: bool = False
     support_rty_i: bool = False
     support_lock_o: bool = False
+    support_cti_o: bool = False
+    support_bti_o: bool = False
     support_tga_o: Optional[WishboneTag] = None
     support_tgd_i: Optional[WishboneTag] = None
     support_tgd_o: Optional[WishboneTag] = None
@@ -77,13 +100,13 @@ class WishboneSpec:
                 self.endian = "little"
 
 
-class WishbonePort(wiring.Signature):
+class WishboneSignature(wiring.Signature):
     """
-    WishbonePort is a class that represents a Wishbone bus port with a specified specification.
+    WishboneSignature is a class that represents a Wishbone bus port with a specified specification.
     Attributes:
         spec (WishboneSpec): The specification of the Wishbone bus.
     Methods:
-        __init__(spec: WishboneSpec): Initializes the WishbonePort with the given specification.
+        __init__(spec: WishboneSpec): Initializes the WishboneSignature with the given specification.
     """
 
     def __init__(
@@ -145,14 +168,16 @@ class WishbonePort(wiring.Signature):
         return self.members == other.members
 
 
-class Core(wiring.Component):
-    """
-    Top Component
-    """
-
-    def __init__(self):
-        super().__init__({})
+class WishboneMaster(wiring.Component):
+    def __init__(self, spec: WishboneSpec):
+        self._spec = spec
+        super().__init__(
+            {
+                "bus": WishboneSignature(spec),
+            }
+        )
 
     def elaborate(self, platform):
         m = Module()
+        bus: Out(WishboneSignature(self._spec)) = m.bus
         return m
