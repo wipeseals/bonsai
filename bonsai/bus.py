@@ -24,7 +24,7 @@ class WishboneTag:
 
 
 @enum.unique
-class CycleType(enum.IntEnumm):
+class CycleTypeIdentier(enum.IntEnumm):
     CLASSIC = 0b000  # Required
     CONST_ADDR_BURST = 0b001  # Optional: Same address
     INCR_ADDR_BURST = 0b010  # Optional: Incrementing address
@@ -46,20 +46,22 @@ class BurstTypeExtension(enum.IntEnum):
 @dataclass
 class WishboneSpec:
     """
-    WishboneSpec is a data class that represents a Wishbone bus specification with specified port size, granularity, spec revision, error support, retry support, tag support, and endianness.
+    WishboneSpec is a data class that represents a Wishbone bus specification based on the Wishbone B4 specification.
+    Reference: https://wishbone-interconnect.readthedocs.io/en/latest/04_registered.html
     Attributes:
         port_size (Literal[8, 16, 32, 64]): The size of the Wishbone port.
-        granularity (Optional[Literal[8, 16, 32, 64]]): The granularity of the Wishbone bus.
+        granularity (Literal[8, 16, 32, 64]): The granularity of the Wishbone bus.
         spec_rev (str): The revision of the Wishbone specification.
         support_err_i (bool): Whether error support is enabled.
         support_rty_i (bool): Whether retry support is enabled.
         support_lock_o (bool): Whether lock support is enabled.
+        support_cti_o (bool): Whether cycle type identifier support is enabled.
+        support_bti_o (bool): Whether burst type extension support is enabled.
         support_tga_o (Optional[WishboneTag]): The tag support for the address bus.
         support_tgd_i (Optional[WishboneTag]): The tag support for the data input bus.
         support_tgd_o (Optional[WishboneTag]): The tag support for the data output bus.
         support_tgc_o (Optional[WishboneTag]): The tag support for the cycle bus.
         endian (Optional[Literal["little", "big"]]): The endianness of the Wishbone bus.
-
     """
 
     port_size: Literal[8, 16, 32, 64]
@@ -148,6 +150,12 @@ class WishboneSignature(wiring.Signature):
         if self.spec.support_lock_o:
             # bus cycle uninterruptible input
             members["lock_o"] = Out(1)
+        if self.spec.support_cti_o:
+            # cycle type input
+            members["cti_o"] = Out(CycleTypeIdentier)
+        if self.spec.support_bti_o:
+            # burst type input
+            members["bte_o"] = Out(BurstTypeExtension)
         # tag support (optional)
         if self.spec.support_tga_o is not None:
             # address tag output
@@ -173,11 +181,10 @@ class WishboneMaster(wiring.Component):
         self._spec = spec
         super().__init__(
             {
-                "bus": WishboneSignature(spec),
+                "wb_bus": WishboneSignature(spec),
             }
         )
 
     def elaborate(self, platform):
         m = Module()
-        bus: Out(WishboneSignature(self._spec)) = m.bus
         return m
