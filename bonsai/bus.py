@@ -24,7 +24,7 @@ class WishboneTag:
 
 
 @enum.unique
-class CycleTypeIdentier(enum.IntEnumm):
+class CycleTypeIdentier(enum.IntEnum):
     CLASSIC = 0b000  # Required
     CONST_ADDR_BURST = 0b001  # Optional: Same address
     INCR_ADDR_BURST = 0b010  # Optional: Incrementing address
