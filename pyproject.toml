@@ -24,8 +24,6 @@ dev = [
     "amaranth-yosys>=0.40.0.0.post100",
     "mypy>=1.14.1",
     "types-requests>=2.32.0.20241016",
-    "mkdocs>=1.6.1",
-    "mkdocs-material>=9.5.50",
 ]
 
 [tool.uv.sources]
@@ -38,8 +36,6 @@ test = "pytest -v --ff -rfs"
 cov = "pytest --cov bonsai --cov-report term --cov-report xml"
 check = "ruff check --fix"
 format = "ruff format"
-docs-serve = "mkdocs serve"
-docs-build = "mkdocs build"
 mypy = "mypy bonsai"
 
 [tool.ruff.lint]
