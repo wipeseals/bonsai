@@ -5,9 +5,9 @@ from typing import List
 import util
 from amaranth import Elaboratable
 from amaranth.build.plat import Platform
-from amaranth.lib import wiring
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
-from top import PlatformTop, Timer, Top
+from lib.timer import Timer
+from top import PlatformTop, Top
 
 
 def build(args: argparse.Namespace) -> None:
