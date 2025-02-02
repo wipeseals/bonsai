@@ -101,12 +101,12 @@ class UartTx(wiring.Component):
                 with m.State("START_BIT"):
                     # Databit送信
                     with m.If(tx_counter < self._num_data_bit - 1):
-                        # data bit
+                        # data bit(0~n-1)
                         m.d.sync += [
                             tx_counter.eq(tx_counter + 1),
                             self.tx.eq(tx_data.bit_select(tx_counter, 1)),
                         ]
-                    with m.Elif(tx_counter == (self._num_data_bit - 1)):
+                    with m.Else():
                         # last data bit
                         m.d.sync += [
                             tx_counter.eq(0),  # Parity/StopBit送信向けに初期化
@@ -115,10 +115,10 @@ class UartTx(wiring.Component):
                         # parity bit or stop bit
                         if self._parity == UartParity.NONE:
                             m.next = "STOP_BIT"
-                        elif self._parity == UartParity.ODD:
+                        elif self._parity in [UartParity.ODD, UartParity.EVEN]:
                             m.next = "PARITY"
-                        elif self._parity == UartParity.EVEN:
-                            m.next = "PARITY"
+                        else:
+                            raise ValueError(f"Invalid parity: {self._parity}")
                 with m.State("PARITY"):
                     odd_parity = tx_data.xor()
                     even_parity = ~odd_parity
@@ -131,17 +131,16 @@ class UartTx(wiring.Component):
                     ]
                     m.next = "STOP_BIT"
                 with m.State("STOP_BIT"):
-                    # StopBit送信
                     with m.If(tx_counter < self._num_stop_bit - 1):
-                        # stop bit
+                        # stop bit (0~n-1)
                         m.d.sync += [
                             tx_counter.eq(tx_counter + 1),
                             self.tx.eq(1),  # StopBit
                         ]
-                    with m.Elif(tx_counter == (self._num_stop_bit - 1)):
+                    with m.Else():
                         # last stop bit
                         m.d.sync += [
-                            tx_counter.eq(0),  # 転送終了
+                            tx_counter.eq(0),  # 転送終了したので初期化
                             self.tx.eq(1),  # StopBit
                         ]
                         # Fetchしたデータ不要
@@ -153,27 +152,52 @@ class UartTx(wiring.Component):
 
 
 class Top(wiring.Component):
-    def __init__(self, clk_freq: float, period_sec: float = 1.0):
+    def __init__(
+        self, clk_freq: float, period_sec: float = 1.0, baud_rate: int = 115200
+    ):
         self.timer = Timer(clk_freq=clk_freq, default_period_seconds=period_sec)
+        self.uart_tx = UartTx(clk_freq=clk_freq, baud_rate=baud_rate)
 
         super().__init__(
             {
                 "ovf": Out(1),
+                "tx": Out(1),
             }
         )
 
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
         m.submodules.timer = self.timer
+        m.submodules.uart_tx = self.uart_tx
 
+        # Timer
         m.d.comb += [
+            # External
             self.ovf.eq(self.timer.ovf),
-            # timer constant
+            # Internal
             self.timer.en.eq(1),
             self.timer.clr.eq(0),
             self.timer.trig.eq(0),
             self.timer.cmp_count_wr.eq(0),
             self.timer.mode.eq(TimerMode.FREERUN_WITH_CLEAR),
+        ]
+
+        # uart_tx test
+        char_start = ord(" ")
+        char_end = ord("~")
+        tx_data = Signal(8, reset=0)
+        with m.If(self.uart_tx.stream.ready):
+            with m.If(tx_data < char_end):
+                m.d.sync += tx_data.eq(tx_data + 1)
+            with m.Else():
+                m.d.sync += tx_data.eq(char_start)
+        m.d.comb += [
+            # External
+            self.tx.eq(self.uart_tx.tx),
+            # Internal
+            self.uart_tx.stream.valid.eq(1),
+            self.uart_tx.stream.payload.eq(tx_data),
+            self.uart_tx.en.eq(1),
         ]
 
         return m
@@ -215,6 +239,13 @@ class PlatformTop(Elaboratable):
         # 各bitをLEDに割当
         for i, led in enumerate(leds):
             m.d.comb += [led.o.eq(counter[i])]
+
+        uart = platform.request("uart", 0, dir="-")
+        uart_tx = io.Buffer("o", uart.tx)
+        m.submodules += [uart_tx]
+        m.d.comb += [
+            uart_tx.o.eq(top.tx),
+        ]
 
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
