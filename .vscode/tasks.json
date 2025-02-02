@@ -22,7 +22,7 @@
         {
             "label": "run arty",
             "type": "shell",
-            "command": "task run build arty",
+            "command": "task run build --platform arty",
             "group": {
                 "kind": "build",
                 "isDefault": true
