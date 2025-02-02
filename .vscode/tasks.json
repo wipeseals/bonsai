@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "run current file",
+            "label": "build",
             "type": "shell",
-            "command": "uv run ${file}",
+            "command": "task run build",
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -20,9 +20,9 @@
             ]
         },
         {
-            "label": "generate all",
+            "label": "run arty",
             "type": "shell",
-            "command": "task run --generate-all",
+            "command": "task run build arty",
             "group": {
                 "kind": "build",
                 "isDefault": true
