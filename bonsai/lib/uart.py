@@ -19,7 +19,7 @@ class UartTx(wiring.Component):
         baud_rate: int = 115200,
         num_data_bit: int = 8,
         num_stop_bit: int = 1,
-        parity: UartParity = UartParity.NONE,
+        parity: UartParity = UartParity(UartParity.NONE),
     ):
         # Clock周期
         self._clk_period = 1 / clk_freq
