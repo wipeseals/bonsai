@@ -1,4 +1,5 @@
 import pytest
+
 from bonsai.util import byte_width, is_power_of_2
 
 

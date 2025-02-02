@@ -18,15 +18,21 @@ This project is managed with [uv](https://docs.astral.sh/uv/).
 # install uv
 $ pip install --upgrade pip
 $ pip install uv
+```
 
+```bash
 # Create a Python environment for the bonsai project
 $ uv python install
+$ uv venv
 
 # Synchronize packages
 $ uv sync --all-extras --dev
+```
 
-# Run all simulations
-$ task test
+### Run Tests
+
+```bash
+$ uv run test
 ```
 
 ### Use Docker Compose
