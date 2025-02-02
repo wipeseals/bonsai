@@ -93,7 +93,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amaranth", extras = ["builtin-yosys"], specifier = ">=0.5.3" },
+    { name = "amaranth", extras = ["builtin-yosys"], specifier = ">=0.5.4" },
     { name = "amaranth-boards", git = "https://github.com/amaranth-lang/amaranth-boards.git" },
     { name = "amaranth-soc", git = "https://github.com/amaranth-lang/amaranth-soc.git" },
     { name = "asyncio", specifier = ">=3.4.3" },

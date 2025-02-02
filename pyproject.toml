@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "amaranth-boards",
     "amaranth-soc",
-    "amaranth[builtin-yosys]>=0.5.3",
+    "amaranth[builtin-yosys]>=0.5.4",
     "asyncio>=3.4.3",
     "pydantic>=2.10.2",
     "taskipy>=1.14.1",
