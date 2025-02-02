@@ -7,7 +7,8 @@ from amaranth import Elaboratable
 from amaranth.build.plat import Platform
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from lib.timer import Timer
-from top import PlatformTop, Top, UartTx
+from lib.uart import UartTx
+from top import PlatformTop, Top
 
 
 def build(args: argparse.Namespace) -> None:
