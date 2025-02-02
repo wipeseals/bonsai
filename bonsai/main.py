@@ -7,7 +7,7 @@ from amaranth import Elaboratable
 from amaranth.build.plat import Platform
 from amaranth.lib import wiring
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
-from top import PlatformTop, Top
+from top import PlatformTop, Timer, Top
 
 
 def build(args: argparse.Namespace) -> None:
@@ -33,7 +33,8 @@ def build(args: argparse.Namespace) -> None:
 
         logging.info("Generating Verilog files for all components")
         target_components: List[Elaboratable] = [
-            Top(clk_freq=int(100e6), period_sec=1.0),
+            Top(clk_freq=100e6, period_sec=1.0),
+            Timer(clk_freq=100e6, default_period_seconds=1.0),
         ]
         for component in target_components:
             filename = f"{component.__class__.__name__}"
