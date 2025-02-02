@@ -3,7 +3,7 @@ name = "bonsai"
 version = "0.1.0"
 description = "toy risc-v processor"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "amaranth-boards",
     "amaranth-soc",
@@ -45,7 +45,7 @@ extend-select = ["I"]
 extend-ignore = ["F841"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"
 warn_unused_configs = true
 warn_return_any = true
 warn_unused_ignores = true
