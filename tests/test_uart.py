@@ -13,6 +13,7 @@ from bonsai.util import Simulation, even_parity, odd_parity
     [
         (10e6, 115200, 8, 1, UartParity.NONE),
         (100e6, 115200, 8, 1, UartParity.NONE),
+        (100e6, 921600, 8, 1, UartParity.NONE),
     ],
 )
 def test_uart_tx_send_short(
@@ -75,8 +76,8 @@ def run_uart_tx_send(
     period = 1 / baudrate
     # 1ビットあたりのクロック数
     period_count = int(period / (1 / clk_freq))
-    # 周期のさらに半分でサンプリング
-    sample_point = math.ceil(period_count / 2)
+    # start bit検出した後、1/4周期待った地点をサンプリングポイントとする
+    sample_point = math.ceil(period_count / 4)
 
     async def bench(ctx: SimulatorContext):
         ctx.set(dut.en, 1)
@@ -101,7 +102,7 @@ def run_uart_tx_send(
                 await ctx.tick()
             logging.debug("start bit detected")
 
-            # start bitのsample pointまで半周期待ち
+            # start bitのsample pointまで1/4周期待ち
             await ctx.tick().repeat(sample_point)
 
             # start bit飛ばす
