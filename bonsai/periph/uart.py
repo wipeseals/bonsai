@@ -96,10 +96,10 @@ class UartTx(wiring.Component):
                 with m.If(event_tx & self.en & tx_data_valid):
                     m.d.sync += [
                         tx_counter.eq(0),  # 転送ビット位置向けに初期化
-                        self.tx.eq(0),  # StartBit
+                        self.tx.eq(0),  # StartBitは状態遷移中に送信。次からデータ送信
                     ]
-                    m.next = "START_BIT"
-            with m.State("START_BIT"):
+                    m.next = "DATA"
+            with m.State("DATA"):
                 with m.If(event_tx):
                     # Databit送信
                     with m.If(tx_counter < self._num_data_bit - 1):
@@ -115,10 +115,10 @@ class UartTx(wiring.Component):
                             self.tx.eq(tx_data.bit_select(tx_counter, 1)),
                         ]
                         # parity bit or stop bit
-                        if self._parity == UartParity.NONE:
-                            m.next = "STOP_BIT"
-                        elif self._parity in [UartParity.ODD, UartParity.EVEN]:
+                        if self._parity in [UartParity.ODD, UartParity.EVEN]:
                             m.next = "PARITY"
+                        elif self._parity == UartParity.NONE:
+                            m.next = "STOP_BIT"
                         else:
                             raise ValueError(f"Invalid parity: {self._parity}")
             with m.State("PARITY"):
