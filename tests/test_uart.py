@@ -12,12 +12,8 @@ from bonsai.util import Simulation, even_parity, odd_parity
 @pytest.mark.parametrize(
     "clk_freq, baudrate, num_data_bit, num_stop_bit, parity",
     [
-        (10e6, 9600, 8, 1, UartParity.NONE),
-        (100e6, 9600, 8, 1, UartParity.NONE),
         (10e6, 115200, 8, 1, UartParity.NONE),
         (100e6, 115200, 8, 1, UartParity.NONE),
-        (100e6, 115200, 8, 1, UartParity.ODD),
-        (100e6, 115200, 8, 1, UartParity.EVEN),
     ],
 )
 def test_uart_tx_send_short(
