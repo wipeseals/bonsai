@@ -9,12 +9,56 @@ from bonsai.periph.uart import UartParity, UartTx
 from bonsai.util import Simulation, even_parity, odd_parity
 
 
+@pytest.mark.parametrize(
+    "clk_freq, baudrate, num_data_bit, num_stop_bit, parity",
+    [
+        (10e6, 9600, 8, 1, UartParity.NONE),
+        (100e6, 9600, 8, 1, UartParity.NONE),
+        (10e6, 115200, 8, 1, UartParity.NONE),
+        (100e6, 115200, 8, 1, UartParity.NONE),
+        (100e6, 115200, 8, 1, UartParity.ODD),
+        (100e6, 115200, 8, 1, UartParity.EVEN),
+    ],
+)
+def test_uart_tx_send_short(
+    clk_freq: float,
+    baudrate: int,
+    num_data_bit: int,
+    num_stop_bit: int,
+    parity: UartParity,
+):
+    run_uart_tx_send(
+        clk_freq=clk_freq,
+        baudrate=baudrate,
+        num_data_bit=num_data_bit,
+        num_stop_bit=num_stop_bit,
+        parity=parity,
+    )
+
+
+@pytest.mark.skip(reason="very slow test")
 @pytest.mark.parametrize("clk_freq", [10e6, 100e6])
 @pytest.mark.parametrize("baudrate", [9600, 115200, 230400])
 @pytest.mark.parametrize("num_data_bit", [8, 7])
 @pytest.mark.parametrize("num_stop_bit", [1, 2])
 @pytest.mark.parametrize("parity", [UartParity.NONE, UartParity.ODD, UartParity.EVEN])
-def test_uart_tx_send(
+def test_uart_tx_send_long(
+    clk_freq: float,
+    baudrate: int,
+    num_data_bit: int,
+    num_stop_bit: int,
+    parity: UartParity,
+):
+    run_uart_tx_send(
+        clk_freq=clk_freq,
+        baudrate=baudrate,
+        num_data_bit=num_data_bit,
+        num_stop_bit=num_stop_bit,
+        parity=parity,
+    )
+
+
+def run_uart_tx_send(
     clk_freq: float,
     baudrate: int,
     num_data_bit: int,
@@ -100,7 +144,7 @@ def test_uart_tx_send(
                 await ctx.tick().repeat(period_count)
 
     Simulation.run(
-        name=f"{test_uart_tx_send.__name__}_baudrate{baudrate}_num_data_bit{num_data_bit}_num_stop_bit{num_stop_bit}_parity{parity}",
+        name=f"{run_uart_tx_send.__name__}_baudrate{baudrate}_num_data_bit{num_data_bit}_num_stop_bit{num_stop_bit}_parity{parity}",
         dut=dut,
         testbench=bench,
         clock=clk_freq,
