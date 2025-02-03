@@ -6,8 +6,8 @@ from amaranth.lib import enum, io, stream, wiring
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
-from lib.uart import UartTx
-from lib.timer import Timer, TimerMode
+from periph.uart import UartTx
+from periph.timer import Timer, TimerMode
 
 
 class Top(wiring.Component):

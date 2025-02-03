@@ -6,8 +6,8 @@ import util
 from amaranth import Elaboratable
 from amaranth.build.plat import Platform
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
-from lib.timer import Timer
-from lib.uart import UartTx
+from periph.timer import Timer
+from periph.uart import UartTx
 from top import PlatformTop, Top
 
 

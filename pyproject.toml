@@ -23,6 +23,7 @@ dev = [
     "amaranth-yosys>=0.40.0.0.post100",
     "mypy>=1.14.1",
     "types-requests>=2.32.0.20241016",
+    "pytest-xdist>=3.6.1",
 ]
 
 [tool.uv.sources]
@@ -31,8 +32,8 @@ amaranth-soc = { git = "https://github.com/amaranth-lang/amaranth-soc.git" }
 
 [tool.taskipy.tasks]
 run = "python bonsai/main.py"
-test = "pytest -v --ff -rfs"
-cov = "pytest --cov bonsai --cov-report term --cov-report xml"
+test = "pytest -v --ff -rfs -n auto"
+cov = "pytest --cov bonsai --cov-report term --cov-report xml -n auto"
 check = "ruff check --fix"
 format = "ruff format"
 mypy = "mypy bonsai"
@@ -66,3 +67,6 @@ check_untyped_defs = false
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+cache_dir = ".pytest_cache"

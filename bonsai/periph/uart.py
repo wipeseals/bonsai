@@ -19,7 +19,7 @@ class UartTx(wiring.Component):
         baud_rate: int = 115200,
         num_data_bit: int = 8,
         num_stop_bit: int = 1,
-        parity: UartParity = UartParity.NONE,
+        parity: UartParity = UartParity(UartParity.NONE),
     ):
         # Clock周期
         self._clk_period = 1 / clk_freq
@@ -55,8 +55,8 @@ class UartTx(wiring.Component):
         m = Module()
 
         # 分周カウンタ
-        div_counter = Signal(self._div_counter_width, reset=0)
-        event_tx = Signal(1, reset=0)
+        div_counter = Signal(self._div_counter_width, init=0)
+        event_tx = Signal(1, init=0)
         with m.If(div_counter < self._period_count):
             m.d.sync += [
                 div_counter.eq(div_counter + 1),
@@ -72,7 +72,7 @@ class UartTx(wiring.Component):
         # AmaranthのData streamにあるData transfer rulesではSlave側のreadyがvalidを待つことを禁止していないが
         # AXIに習って受付可能状態にreadyを返すようにしておく
         tx_data = Signal(self._num_data_bit)
-        tx_data_valid = Signal(1, reset=0)
+        tx_data_valid = Signal(1, init=0)
         # tx_dataにデータ格納してなければ取得OK
         m.d.comb += self.stream.ready.eq(~tx_data_valid)
         # ready & validで転送実行
@@ -83,18 +83,24 @@ class UartTx(wiring.Component):
             ]
 
         # 転送カウンタ+FSMで制御。enはいきなり反応しない
-        tx_counter = Signal(self._transfer_counter_width, reset=0)
-        with m.If(event_tx):
-            with m.FSM(init="IDLE"):
-                with m.State("IDLE"):
-                    # 有効かつデータあれば転送開始 + StartBit
-                    with m.If(self.en & tx_data_valid):
-                        m.d.sync += [
-                            tx_counter.eq(0),  # 転送ビット位置向けに初期化
-                            self.tx.eq(0),  # StartBit
-                        ]
-                        m.next = "START_BIT"
-                with m.State("START_BIT"):
+        tx_counter = Signal(self._transfer_counter_width, init=0)
+        with m.FSM(init="IDLE"):
+            with m.State("IDLE"):
+                # 何も起きない場合にtx=1固定
+                m.d.sync += [
+                    tx_counter.eq(0),
+                    self.tx.eq(1),  # Idle
+                ]
+
+                # 有効かつイベントタイミングかつデータあれば転送開始 + StartBit
+                with m.If(event_tx & self.en & tx_data_valid):
+                    m.d.sync += [
+                        tx_counter.eq(0),  # 転送ビット位置向けに初期化
+                        self.tx.eq(0),  # StartBitは状態遷移中に送信。次からデータ送信
+                    ]
+                    m.next = "DATA"
+            with m.State("DATA"):
+                with m.If(event_tx):
                     # Databit送信
                     with m.If(tx_counter < self._num_data_bit - 1):
                         # data bit(0~n-1)
@@ -109,15 +115,17 @@ class UartTx(wiring.Component):
                             self.tx.eq(tx_data.bit_select(tx_counter, 1)),
                         ]
                         # parity bit or stop bit
-                        if self._parity == UartParity.NONE:
-                            m.next = "STOP_BIT"
-                        elif self._parity in [UartParity.ODD, UartParity.EVEN]:
+                        if self._parity in [UartParity.ODD, UartParity.EVEN]:
                             m.next = "PARITY"
+                        elif self._parity == UartParity.NONE:
+                            m.next = "STOP_BIT"
                         else:
                             raise ValueError(f"Invalid parity: {self._parity}")
-                with m.State("PARITY"):
-                    odd_parity = tx_data.xor()
-                    even_parity = ~odd_parity
+            with m.State("PARITY"):
+                with m.If(event_tx):
+                    # 全bitのxorが奇数なら1、偶数なら0。この結果をそのまま使えるのはeven parity. odd parityはデータ全体が奇数になるように調整するので反転
+                    even_parity = tx_data.xor()
+                    odd_parity = ~even_parity
                     send_parity = (
                         odd_parity if self._parity == UartParity.ODD else even_parity
                     )
@@ -126,7 +134,8 @@ class UartTx(wiring.Component):
                         self.tx.eq(send_parity),
                     ]
                     m.next = "STOP_BIT"
-                with m.State("STOP_BIT"):
+            with m.State("STOP_BIT"):
+                with m.If(event_tx):
                     with m.If(tx_counter < self._num_stop_bit - 1):
                         # stop bit (0~n-1)
                         m.d.sync += [

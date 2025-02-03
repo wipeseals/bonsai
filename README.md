@@ -29,30 +29,43 @@ $ uv venv
 $ uv sync --all-extras --dev
 ```
 
-### Run Tests
+### Run
 
 ```bash
-$ uv run test
+# Available tasks
+$ uv run task -l
+run    python bonsai/main.py
+test   pytest -v --ff -rfs
+cov    pytest --cov bonsai --cov-report term --cov-report xml
+check  ruff check --fix
+format ruff format
+mypy   mypy bonsai
+
+# Run the bonsai project
+task run -h
+usage: main.py [-h] [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] {build} ...
+
+positional arguments:
+  {build}               Select the action to perform
+    build               build the project
+
+options:
+  -h, --help            show this help message and exit
+  --log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}
+                        Set the logging level
+
+
+# Run simulation
+task test     
+============================================================ test session starts ============================================================
+platform win32 -- Python 3.10.14[pypy-7.3.17-final], pytest-8.3.4, pluggy-1.5.0 -- E:\repos\bonsai\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+metadata: {'Python': '3.10.14', 'Platform': 'Windows-10-10.0.26100-SP0', 'Packages': {'pytest': '8.3.4', 'pluggy': '1.5.0'}, 'Plugins': {'cov': '6.0.0', 'html': '4.1.1', 'metadata': '3.1.1', 'mock': '3.14.0'}, 'JAVA_HOME': 'C:\\Program Files\\Microsoft\\jdk-17.0.14.7-hotspot\\'}     
+rootdir: E:\repos\bonsai
+configfile: pyproject.toml
+plugins: cov-6.0.0, html-4.1.1, metadata-3.1.1, mock-3.14.0
+...
 ```
-
-### Use Docker Compose
-
-```bash
-$ docker-compose run bonsai
-```
-
-## Available Tasks
-
-The following tasks are available via `taskipy`:
-
-- `task run`: Run the main script.
-- `task test`: Run all tests.
-- `task cov`: Run tests with coverage report.
-- `task check`: Run `ruff` to check code style.
-- `task format`: Run `ruff` to format code.
-- `task docs-serve`: Serve the documentation locally.
-- `task docs-build`: Build the documentation.
-- `task mypy`: Run `mypy` for type checking.
 
 ## License
 

@@ -1,8 +1,8 @@
 import os
 import sys
-from typing import Callable
+from functools import reduce
+from typing import Callable, Optional
 
-import util
 from amaranth.back import verilog
 from amaranth.lib import wiring
 from amaranth.lib.wiring import Component
@@ -31,6 +31,20 @@ def is_power_of_2(n: int) -> bool:
     0x400 & 0x3FF == 0 (2^10) のような1つ低い値とのビットANDが1bitだけになることを利用
     """
     return n != 0 and (n & (n - 1)) == 0
+
+
+def even_parity(data: int, data_width: int) -> int:
+    """
+    Python上の計算でパリティビットを求める (奇数パリティ)
+    """
+    return reduce(lambda x, y: x ^ y, [data >> i & 1 for i in range(data_width)])
+
+
+def odd_parity(data: int, data_width: int) -> int:
+    """
+    Python上の計算でパリティビットを求める (偶数パリティ)
+    """
+    return 1 - even_parity(data, data_width)
 
 
 class Tee:
@@ -88,7 +102,8 @@ class Simulation:
         name: str,
         dut: wiring.Component,
         testbench: Callable,
-        clock: float = 10e-6,
+        clock: float = 100e6,
+        setup_f: Optional[Callable[[Simulator], None]] = None,
     ) -> "Simulation":
         """
         Run a testbench on a DUT.
@@ -96,6 +111,8 @@ class Simulation:
             name (str): The name of the test.
             dut (wiring.Component): The device under test.
             testbench (Callable): The testbench function.
+            clock (float): The main clock frequency.
+            setup_f (Optional[Callable[Simulator]]): The setup function.
 
         Returns:
             str: The path to the log file.
@@ -103,9 +120,11 @@ class Simulation:
         sim = Simulator(dut)
         sim.add_clock(clock)
         sim.add_testbench(testbench)
+        if setup_f is not None:
+            setup_f(sim)
 
-        log_path = util.generate_dist_file_path(f"{name}.log")
-        vcd_path = util.generate_dist_file_path(f"{name}.vcd")
+        log_path = generate_dist_file_path(f"{name}.log")
+        vcd_path = generate_dist_file_path(f"{name}.vcd")
         try:
             with sim.write_vcd(vcd_path):
                 # Redirect stdout to a file
