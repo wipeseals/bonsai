@@ -76,7 +76,7 @@
         {
             "label": "run pytest (current file)",
             "type": "shell",
-            "command": "uv run pytest -v -s ${file}",
+            "command": "uv run pytest --log-cli-level=DEBUG -x -v -s ${file}",
             "group": {
                 "kind": "test",
                 "isDefault": true
