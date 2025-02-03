@@ -1,6 +1,5 @@
 import logging
 import math
-from functools import reduce
 
 import pytest
 from amaranth.sim import SimulatorContext
