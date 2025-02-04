@@ -6,8 +6,9 @@ from amaranth.lib import enum, io, stream, wiring
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
-from periph.uart import UartTx
+from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer, TimerMode
+from periph.uart import UartTx
 
 
 class Top(wiring.Component):
@@ -106,6 +107,37 @@ class PlatformTop(Elaboratable):
             uart_tx.o.eq(top.tx),
         ]
 
+    def _elabolate_tangnano_9k(self, m: Module, platform: Platform):
+        NUM_LED = 6
+        leds = [
+            io.Buffer("o", platform.request("led", i, dir="-")) for i in range(NUM_LED)
+        ]
+
+        NUM_BUTTON = 2
+        buttons = [
+            io.Buffer("i", platform.request("button", i, dir="-"))
+            for i in range(NUM_BUTTON)
+        ]
+        button_data = Cat([button.i for button in buttons])
+
+        m.submodules += leds + buttons
+        top: Top = m.submodules.top
+
+        COUNTER_WIDTH = NUM_LED
+        counter = Signal(COUNTER_WIDTH)
+        with m.If(top.ovf):
+            m.d.sync += counter.eq(counter + 1 + button_data)
+        # 各bitをLEDに割当
+        for i, led in enumerate(leds):
+            m.d.comb += [led.o.eq(counter[i])]
+
+        uart = platform.request("uart", 0, dir="-")
+        uart_tx = io.Buffer("o", uart.tx)
+        m.submodules += [uart_tx]
+        m.d.comb += [
+            uart_tx.o.eq(top.tx),
+        ]
+
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
         m.submodules.top = Top(platform.default_clk_frequency, period_sec=1.0)
@@ -113,6 +145,8 @@ class PlatformTop(Elaboratable):
         # Platform specific elaboration
         if isinstance(platform, ArtyA7_35Platform):
             self._elaborate_arty_a7_35(m, platform)
+        elif isinstance(platform, TangNano9kPlatform):
+            self._elabolate_tangnano_9k(m, platform)
         else:
             logging.warning(f"Unsupported platform: {platform}")
 

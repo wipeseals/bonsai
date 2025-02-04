@@ -1,22 +1,24 @@
 import argparse
 import logging
-from typing import List
+from typing import Dict, List, Optional
 
 import util
 from amaranth import Elaboratable
 from amaranth.build.plat import Platform
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
+from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer
 from periph.uart import UartTx
 from top import PlatformTop, Top
 
+SUPPORT_DEVICES: Dict[str, Platform] = {
+    "arty": ArtyA7_35Platform(),
+    "tangnano9k": TangNano9kPlatform(),
+}
+
 
 def build(args: argparse.Namespace) -> None:
-    platform: Platform = None
-    if args.platform == "arty":
-        platform = ArtyA7_35Platform()
-    else:
-        logging.warning(f"Unsupported platform: {args.platform}")
+    platform: Optional[Platform] = SUPPORT_DEVICES.get(args.platform, None)
 
     if platform is not None:
         logging.info(
@@ -64,8 +66,8 @@ def main() -> None:
     parser_build = subparsers.add_parser("build", help="build the project")
     parser_build.add_argument(
         "--platform",
-        default="",
-        choices=["", "arty"],
+        default="tangnano9k",
+        choices=[""] + list(SUPPORT_DEVICES.keys()),
         help="Set the target platform",
     )
     parser_build.add_argument(
@@ -80,7 +82,6 @@ def main() -> None:
     )
     parser_build.set_defaults(func=build)
 
-    # parse & run
     args = parser.parse_args()
     logging.basicConfig(level=args.log_level)
     args.func(args)
