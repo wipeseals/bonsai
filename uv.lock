@@ -3,16 +3,12 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "amaranth"
-version = "0.5.4"
-source = { registry = "https://pypi.org/simple" }
+version = "0.6.0.dev76"
+source = { git = "https://github.com/amaranth-lang/amaranth.git#54dd41da3a8b5908cf16acd82ce0ece0c58de77e" }
 dependencies = [
     { name = "jinja2" },
     { name = "jschon" },
     { name = "pyvcd" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/32/4c/2ca05dc4ce84c75af2efe29dce8c422c13254342911979b4ac69bfb91726/amaranth-0.5.4.tar.gz", hash = "sha256:a0ea7ffe358ab00d5524b53c43277d279723437be146c8250e26f6b349b8a4fd", size = 226390 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/c3/a7124071d8cf2dfc958a13fd6d32efb075ce203d275df8fcbb00cbe82ad7/amaranth-0.5.4-py3-none-any.whl", hash = "sha256:ce7473b4220acc78474474fd132177ca545fb144d4e69e1c7dbfc2ed7d32bcf3", size = 253432 },
 ]
 
 [package.optional-dependencies]
@@ -24,14 +20,6 @@ builtin-yosys = [
 name = "amaranth-boards"
 version = "0.1.dev254+gc132fb2"
 source = { git = "https://github.com/amaranth-lang/amaranth-boards.git#c132fb250e28db2570635e65fe1fa2f5d21a44ac" }
-dependencies = [
-    { name = "amaranth" },
-]
-
-[[package]]
-name = "amaranth-soc"
-version = "0.1a1.dev24+g5c43cf5"
-source = { git = "https://github.com/amaranth-lang/amaranth-soc.git#5c43cf58f15d9cd9c69ff83c97997708d386b2dc" }
 dependencies = [
     { name = "amaranth" },
 ]
@@ -72,7 +60,6 @@ source = { virtual = "." }
 dependencies = [
     { name = "amaranth", extra = ["builtin-yosys"] },
     { name = "amaranth-boards" },
-    { name = "amaranth-soc" },
     { name = "asyncio" },
     { name = "pydantic" },
     { name = "taskipy" },
@@ -93,9 +80,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "amaranth", extras = ["builtin-yosys"], specifier = ">=0.5.4" },
+    { name = "amaranth", extras = ["builtin-yosys"], git = "https://github.com/amaranth-lang/amaranth.git" },
     { name = "amaranth-boards", git = "https://github.com/amaranth-lang/amaranth-boards.git" },
-    { name = "amaranth-soc", git = "https://github.com/amaranth-lang/amaranth-soc.git" },
     { name = "asyncio", specifier = ">=3.4.3" },
     { name = "pydantic", specifier = ">=2.10.2" },
     { name = "taskipy", specifier = ">=1.14.1" },
