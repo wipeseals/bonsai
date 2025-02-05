@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from amaranth import Cat, Elaboratable, Module, Mux, Signal, unsigned
 from amaranth.build.plat import Platform
@@ -312,6 +313,12 @@ class PlatformTop(Elaboratable):
         ]
 
     def _elabolate_tangnano_9k(self, m: Module, platform: Platform):
+        ##################################################################
+        # core ip
+        platform.add_file(
+            "gowin_rpll.v",
+            Path("eda/bonsai_tangnano9k/src/gowin_rpll/gowin_rpll.v").read_text(),
+        )
         ##################################################################
         # VGA
         # https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/examples/rgb_screen.html
