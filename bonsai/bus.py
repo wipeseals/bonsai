@@ -177,12 +177,13 @@ class WishboneSignature(wiring.Signature):
 
 
 class WishboneMaster(wiring.Component):
-    def __init__(self, spec: WishboneSpec):
+    def __init__(self, spec: WishboneSpec, *, src_loc_at=0):
         self._spec = spec
         super().__init__(
             {
                 "wb_bus": WishboneSignature(spec),
-            }
+            },
+            src_loc_at=src_loc_at,
         )
 
     def elaborate(self, platform):

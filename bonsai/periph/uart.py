@@ -20,6 +20,8 @@ class UartTx(wiring.Component):
         num_data_bit: int = 8,
         num_stop_bit: int = 1,
         parity: UartParity = UartParity(UartParity.NONE),
+        *,
+        src_loc_at=0,
     ):
         # Clock周期
         self._clk_period = 1 / clk_freq
@@ -48,7 +50,8 @@ class UartTx(wiring.Component):
                 "stream": In(stream.Signature(8)),
                 "en": In(1),
                 "tx": Out(1),
-            }
+            },
+            src_loc_at=src_loc_at,
         )
 
     def elaborate(self, platform: Platform) -> Module:

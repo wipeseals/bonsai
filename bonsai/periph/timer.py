@@ -23,6 +23,8 @@ class Timer(wiring.Component):
         clk_freq: float,
         bit_width: Optional[int] = None,
         default_period_seconds: Optional[float] = None,
+        *,
+        src_loc_at=0,
     ):
         self._clk_freq = int(clk_freq)
         self._bit_width = 0 if bit_width is None else bit_width
@@ -47,7 +49,8 @@ class Timer(wiring.Component):
                 "cmp_count_in": In(self._bit_width),
                 "cmp_count_wr": In(1),
                 "ovf": Out(1),
-            }
+            },
+            src_loc_at=src_loc_at,
         )
 
     def elaborate(self, platform: Platform) -> Module:
