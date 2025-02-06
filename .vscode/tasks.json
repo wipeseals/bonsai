@@ -56,9 +56,9 @@
             ]
         },
         {
-            "label": "program tangnano9k",
+            "label": "sram program tangnano9k",
             "type": "shell",
-            "command": "environment.bat && cd build && openFPGALoader -b tangnano9k top.fs",
+            "command": "environment && cd build && openFPGALoader -b tangnano9k top.fs",
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -69,7 +69,23 @@
                 "focus": false,
                 "panel": "shared"
             },
-        },        {
+        },     
+        {
+            "label": "flash program tangnano9k",
+            "type": "shell",
+            "command": "environment && cd build && openFPGALoader -b tangnano9k -f top.fs",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+        },     
+        {
             "label": "test",
             "type": "shell",
             "command": "task test",
