@@ -171,14 +171,18 @@ class VgaOut(wiring.Component):
         # 現在のカウントから有効な信号を生成
         m.d.comb += [
             # 水平垂直同期
-            # [front-porch, pulse, back-porch] の範囲で有効
+            # [front-porch, pulse, back-porch] の範囲で有効。負論理
             self.hsync.eq(
-                (self.config.hsync_start <= h_counter)
-                & (h_counter < self.config.hsync_end)
+                ~(
+                    (self.config.hsync_start <= h_counter)
+                    & (h_counter < self.config.hsync_end)
+                )
             ),
             self.vsync.eq(
-                (self.config.vsync_start <= v_counter)
-                & (v_counter < self.config.vsync_end)
+                ~(
+                    (self.config.vsync_start <= v_counter)
+                    & (v_counter < self.config.vsync_end)
+                )
             ),
             # データ有効範囲
             # [back-porch, data, (next)front-porch] の範囲で有効
@@ -362,7 +366,7 @@ class PlatformTop(Elaboratable):
         m.d.comb += [
             ClockSignal("sync").eq(clk27_ibuf.i),
             ClockSignal("core_sync").eq(o_clkout),
-            ClockSignal("video_sync").eq(o_clkoutd),
+            ClockSignal("video_sync").eq(clk27_ibuf.i),  # .eq(o_clkoutd),
         ]
 
         ##################################################################
@@ -376,12 +380,13 @@ class PlatformTop(Elaboratable):
             h_front_porch=210,
             h_pulse=1,
             h_back_porch=182,
-            v_front_porch=62,
+            v_front_porch=45,
             v_pulse=5,
-            v_back_porch=6,
+            v_back_porch=0,
         )
         m.submodules.vga = vga = VgaOut(config=vga_config)
         lcd = platform.request("lcd", 0, dir="-")
+        m.submodules.lcd_clk = lcd_clk = io.Buffer("o", lcd.clk)
         m.submodules.lcd_hs = lcd_hs = io.Buffer("o", lcd.hs)
         m.submodules.lcd_vs = lcd_vs = io.Buffer("o", lcd.vs)
         m.submodules.lcd_de = lcd_de = io.Buffer("o", lcd.de)
@@ -399,6 +404,8 @@ class PlatformTop(Elaboratable):
         lcd_g_signals = Cat([g.o for g in lcd_g])
         lcd_b_signals = Cat([b.o for b in lcd_b])
         m.d.comb += [
+            vga.en.eq(Const(1)),
+            lcd_clk.o.eq(ClockSignal("video_sync")),
             lcd_hs.o.eq(vga.hsync),
             lcd_vs.o.eq(vga.vsync),
             lcd_de.o.eq(vga.de),
