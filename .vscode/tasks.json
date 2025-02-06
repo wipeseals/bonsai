@@ -40,7 +40,7 @@
         {
             "label": "run tangnano9k",
             "type": "shell",
-            "command": "task run build --platform tangnano9k",
+            "command": "environment && task run build --platform tangnano9k",
             "group": {
                 "kind": "build",
                 "isDefault": true
