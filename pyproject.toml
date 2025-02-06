@@ -31,11 +31,15 @@ amaranth = { git = "https://github.com/amaranth-lang/amaranth.git" }
 
 [tool.taskipy.tasks]
 run = "python bonsai/main.py"
-test = "pytest -v --ff -rfs -n auto"
-cov = "pytest --cov bonsai --cov-report term --cov-report xml -n auto"
 check = "ruff check --fix"
 format = "ruff format"
 mypy = "mypy bonsai"
+test = "pytest -v --ff -rfs -n auto"
+cov = "pytest --cov bonsai --cov-report term --cov-report xml -n auto"
+build-tangnano9k = "python bonsai/main.py build --platform tangnano9k"
+build-arty = "python bonsai/main.py build --platform arty"
+sram-program = "openFPGALoader -b tangnano9k build/top.fs"
+flash-program = "openFPGALoader -b tangnano9k -f build/top.fs"
 
 [tool.ruff.lint]
 extend-select = ["I"]
