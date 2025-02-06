@@ -1,10 +1,24 @@
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+from turtle import reset
 
-from amaranth import Cat, Elaboratable, Module, Mux, Signal, unsigned
+from amaranth import (
+    Cat,
+    ClockDomain,
+    ClockSignal,
+    Const,
+    Elaboratable,
+    Instance,
+    Module,
+    Mux,
+    Signal,
+    unsigned,
+)
 from amaranth.build.plat import Platform
-from amaranth.lib import data, enum, io, stream, wiring
+from amaranth.lib import cdc, data, enum, io, stream, wiring
+from amaranth.lib.cdc import ResetSynchronizer
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
@@ -124,7 +138,7 @@ class VgaConfig:
 
 
 class VgaOut(wiring.Component):
-    def __init__(self, config: VgaConfig, *, src_loc_at=0):
+    def __init__(self, config: VgaConfig, domain: str = "video_sync", *, src_loc_at=0):
         self.config = config
         super().__init__(
             {
@@ -195,17 +209,17 @@ class VgaOut(wiring.Component):
         with m.If(self.en):
             # Horizontal counter
             with m.If(h_counter < self.config.hdata_end - 1):
-                m.d.sync += h_counter.eq(h_counter + 1)
+                m.d.video_sync += h_counter.eq(h_counter + 1)
             with m.Else():
-                m.d.sync += h_counter.eq(0)
+                m.d.video_sync += h_counter.eq(0)
                 # Vertical counter
                 with m.If(v_counter < self.config.vdata_end - 1):
-                    m.d.sync += v_counter.eq(v_counter + 1)
+                    m.d.video_sync += v_counter.eq(v_counter + 1)
                 with m.Else():
-                    m.d.sync += v_counter.eq(0)
+                    m.d.video_sync += v_counter.eq(0)
         with m.Else():
             # Reset counter & sync invalid
-            m.d.sync += [h_counter.eq(0), v_counter.eq(0)]
+            m.d.video_sync += [h_counter.eq(0), v_counter.eq(0)]
 
         return m
 
@@ -314,11 +328,43 @@ class PlatformTop(Elaboratable):
 
     def _elabolate_tangnano_9k(self, m: Module, platform: Platform):
         ##################################################################
-        # core ip
+        # Clock Setup
+
+        m.domains += [
+            ClockDomain("sync"),
+            ClockDomain("core_sync"),
+            ClockDomain("video_sync"),
+        ]
+
+        # plat.Platform.create_missing_domainで再requestされる暫定対策 TODO: 良い方法あれば置き換え
+        platform.default_clk = None
+        platform.default_rst = None
+
+        # 内蔵発振器からのクロックをPLLで増幅
+        clk27 = platform.request("clk27", 0, dir="-")
+        m.submodules.clk27_ibuf = clk27_ibuf = io.Buffer("i", clk27)
         platform.add_file(
             "gowin_rpll.v",
             Path("eda/bonsai_tangnano9k/src/gowin_rpll/gowin_rpll.v").read_text(),
         )
+
+        o_clkout = Signal(1)
+        o_clkoutd = Signal(1)
+        pll_lock = Signal(1)
+
+        m.submodules.rpll = rpll = Instance(
+            "Gowin_rPLL",
+            i_clkin=ClockSignal("sync"),
+            o_clkout=o_clkout,
+            o_clkoutd=o_clkoutd,
+            o_lock=pll_lock,
+        )
+        m.d.comb += [
+            ClockSignal("sync").eq(clk27_ibuf.i),
+            ClockSignal("core_sync").eq(o_clkout),
+            ClockSignal("video_sync").eq(o_clkoutd),
+        ]
+
         ##################################################################
         # VGA
         # https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/examples/rgb_screen.html
@@ -335,11 +381,7 @@ class PlatformTop(Elaboratable):
             v_back_porch=6,
         )
         m.submodules.vga = vga = VgaOut(config=vga_config)
-        # m.submodules.clk27 = clk27 = io.Buffer(
-        #     "i", platform.request("clk27", 0, dir="-")
-        # ) # TODO: default_clkが後からresouce確保して2重になっている?
         lcd = platform.request("lcd", 0, dir="-")
-        m.submodules.lcd_clk = lcd_clk = io.Buffer("o", lcd.clk)
         m.submodules.lcd_hs = lcd_hs = io.Buffer("o", lcd.hs)
         m.submodules.lcd_vs = lcd_vs = io.Buffer("o", lcd.vs)
         m.submodules.lcd_de = lcd_de = io.Buffer("o", lcd.de)
@@ -357,7 +399,6 @@ class PlatformTop(Elaboratable):
         lcd_g_signals = Cat([g.o for g in lcd_g])
         lcd_b_signals = Cat([b.o for b in lcd_b])
         m.d.comb += [
-            # lcd_clk.o.eq(clk27.i), # TODO: PLL 27MHz -> 33.3333MHz
             lcd_hs.o.eq(vga.hsync),
             lcd_vs.o.eq(vga.vsync),
             lcd_de.o.eq(vga.de),
