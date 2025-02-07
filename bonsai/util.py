@@ -1,5 +1,6 @@
 import os
 import sys
+from dataclasses import dataclass
 from functools import reduce
 from typing import Callable, Optional
 
@@ -7,7 +8,6 @@ from amaranth.back import verilog
 from amaranth.lib import wiring
 from amaranth.lib.wiring import Component
 from amaranth.sim import Simulator
-from pydantic.dataclasses import dataclass
 
 
 def byte_width(width: int) -> int:

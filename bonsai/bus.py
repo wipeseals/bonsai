@@ -1,10 +1,9 @@
+from dataclasses import dataclass
 from typing import Literal, Optional
 
-import pydantic
 from amaranth import Module
 from amaranth.lib import enum, wiring
 from amaranth.lib.wiring import In, Out
-from pydantic.dataclasses import dataclass
 
 
 @dataclass
