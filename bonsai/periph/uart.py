@@ -1,9 +1,10 @@
+from dataclasses import dataclass
+
 from amaranth import Module, Signal
 from amaranth.build.plat import Platform
 from amaranth.lib import enum, stream, wiring
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
-from dataclasses import dataclass
 
 
 @enum.unique
@@ -152,4 +153,40 @@ class UartTx(wiring.Component):
                             tx_data_valid.eq(0),
                         ]
                         m.next = "IDLE"
+        return m
+
+
+class UartRx(wiring.Component):
+    def __init__(self, config: UartConfig, *, src_loc_at=0):
+        self._clk_period = 1 / config.clk_freq
+        self._period = 1 / config.baud_rate
+        self._period_count = int(self._period / self._clk_period)
+        self._div_counter_width = ceil_log2(self._period_count)
+
+        assert config.num_data_bit > 0, "num_data_bit must be positive"
+        assert config.num_stop_bit > 0, "num_stop_bit must be positive"
+        self._num_data_bit = config.num_data_bit
+        self._num_stop_bit = config.num_stop_bit
+        self._parity = config.parity
+        self._transfer_count = (
+            self._num_data_bit
+            + self._num_stop_bit
+            + (1 if self._parity != UartParity.NONE else 0)
+        )
+        self._transfer_counter_width = ceil_log2(self._transfer_count)
+
+        super().__init__(
+            {
+                "rx": In(1),
+                "stream": Out(stream.Signature(8)),
+                "en": In(1),
+            },
+            src_loc_at=src_loc_at,
+        )
+
+    def elaborate(self, platform: Platform) -> Module:
+        m = Module()
+
+        # TODO: Implement UartRx
+
         return m
