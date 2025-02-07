@@ -3,6 +3,7 @@ from amaranth.build.plat import Platform
 from amaranth.lib import enum, stream, wiring
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
+from dataclasses import dataclass
 
 
 @enum.unique
@@ -12,32 +13,27 @@ class UartParity(enum.IntEnum):
     EVEN = 2
 
 
+@dataclass
+class UartConfig:
+    clk_freq: float
+    baud_rate: int = 115200
+    num_data_bit: int = 8
+    num_stop_bit: int = 1
+    parity: UartParity = UartParity(UartParity.NONE)
+
+
 class UartTx(wiring.Component):
-    def __init__(
-        self,
-        clk_freq: float,
-        baud_rate: int = 115200,
-        num_data_bit: int = 8,
-        num_stop_bit: int = 1,
-        parity: UartParity = UartParity(UartParity.NONE),
-        *,
-        src_loc_at=0,
-    ):
-        # Clock周期
-        self._clk_period = 1 / clk_freq
-        # 1ビットあたりの時間(sec)
-        self._period = 1 / baud_rate
-        # 1ビットあたりの必要クロック数
+    def __init__(self, config: UartConfig, *, src_loc_at=0):
+        self._clk_period = 1 / config.clk_freq
+        self._period = 1 / config.baud_rate
         self._period_count = int(self._period / self._clk_period)
-        # クロック数覚える用のカウンタビット幅
         self._div_counter_width = ceil_log2(self._period_count)
 
-        # データ転送カウンタ
-        assert num_data_bit > 0, "num_data_bit must be positive"
-        assert num_stop_bit > 0, "num_stop_bit must be positive"
-        self._num_data_bit = num_data_bit
-        self._num_stop_bit = num_stop_bit
-        self._parity = parity
+        assert config.num_data_bit > 0, "num_data_bit must be positive"
+        assert config.num_stop_bit > 0, "num_stop_bit must be positive"
+        self._num_data_bit = config.num_data_bit
+        self._num_stop_bit = config.num_stop_bit
+        self._parity = config.parity
         self._transfer_count = (
             self._num_data_bit
             + self._num_stop_bit

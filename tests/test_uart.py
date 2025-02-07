@@ -4,7 +4,7 @@ import math
 import pytest
 from amaranth.sim import SimulatorContext
 
-from bonsai.periph.uart import UartParity, UartTx
+from bonsai.periph.uart import UartConfig, UartParity, UartTx
 from bonsai.util import Simulation, even_parity, odd_parity
 
 
@@ -61,13 +61,14 @@ def run_uart_tx_send(
     num_stop_bit: int,
     parity: UartParity,
 ):
-    dut = UartTx(
+    config = UartConfig(
         clk_freq=clk_freq,
         baud_rate=baudrate,
         num_data_bit=num_data_bit,
         num_stop_bit=num_stop_bit,
         parity=parity,
     )
+    dut = UartTx(config=config)
     send_datas = list(
         [x & ((1 << num_data_bit) - 1) for x in [0xFF, 0x00, 0xA5, 0x3C, 0xEF, 0x12]]
     )
