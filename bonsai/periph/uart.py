@@ -345,16 +345,16 @@ class UartRx(wiring.Component):
                     # Parity bit受信
                     actual_parity = self.rx
                     # 正解計算
-                    event_parity = rx_tmp_data.xor()
-                    odd_parity = ~event_parity
+                    even_parity = rx_tmp_data.xor()
+                    odd_parity = ~even_parity
                     expect_parity = (
                         odd_parity
                         if self._config.parity == UartParity.ODD
-                        else event_parity
+                        else even_parity
                     )
                     # Parity成否
                     m.d.sync += [
-                        self.parity_err.eq(actual_parity == expect_parity),
+                        self.parity_err.eq(actual_parity != expect_parity),
                     ]
                     m.next = "STOP_BIT"
             with m.State("STOP_BIT"):
