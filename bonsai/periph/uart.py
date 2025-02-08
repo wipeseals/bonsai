@@ -271,11 +271,13 @@ class UartRx(wiring.Component):
             m.d.sync += [
                 rx_data_valid.eq(0),
             ]
+
         div_counter = Signal(self._config.event_tick_counter_width, init=0)
         rx_counter = Signal(self._config.transfer_total_count, init=0)
         with m.FSM(init="IDLE") as fsm:
             with m.State("IDLE"):
                 # enable & 受信データをStreamが吸った後 & StartBit検知で受信開始
+                # streamにFIFOが無いと次を取りこぼす想定
                 with m.If(self.en & ~rx_data_valid & ~self.rx):
                     # data clear
                     m.d.sync += [
