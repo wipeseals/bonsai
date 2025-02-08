@@ -7,7 +7,7 @@ from typing import Callable, Optional
 from amaranth.back import verilog
 from amaranth.lib import wiring
 from amaranth.lib.wiring import Component
-from amaranth.sim import Simulator
+from amaranth.sim import Period, Simulator
 
 
 def byte_width(width: int) -> int:
@@ -118,7 +118,7 @@ class Simulation:
             str: The path to the log file.
         """
         sim = Simulator(dut)
-        sim.add_clock(clock)
+        sim.add_clock(Period(Hz=clock))
         sim.add_testbench(testbench)
         if setup_f is not None:
             setup_f(sim)
