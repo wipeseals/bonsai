@@ -123,6 +123,7 @@ class UartTx(wiring.Component):
                 "stream": In(stream.Signature(config.num_data_bit)),
                 "en": In(1),
                 "tx": Out(1),
+                "busy": Out(1),
             },
             src_loc_at=src_loc_at,
         )
@@ -160,7 +161,7 @@ class UartTx(wiring.Component):
 
         # 転送カウンタ+FSMで制御。enはいきなり反応しない
         tx_counter = Signal(self._config.transfer_total_counter_width, init=0)
-        with m.FSM(init="IDLE"):
+        with m.FSM(init="IDLE") as fsm:
             with m.State("IDLE"):
                 # 何も起きない場合にtx=1固定
                 m.d.sync += [
@@ -231,6 +232,11 @@ class UartTx(wiring.Component):
                             tx_data_valid.eq(0),
                         ]
                         m.next = "IDLE"
+
+        m.d.sync += [
+            self.busy.eq(~fsm.ongoing("IDLE")),
+        ]
+
         return m
 
 
@@ -243,6 +249,8 @@ class UartRx(wiring.Component):
                 "rx": In(1),
                 "en": In(1),
                 "stream": Out(stream.Signature(config.num_data_bit)),
+                "busy": Out(1),
+                "parity_err": Out(1),
             },
             src_loc_at=src_loc_at,
         )
@@ -263,10 +271,9 @@ class UartRx(wiring.Component):
             m.d.sync += [
                 rx_data_valid.eq(0),
             ]
-
         div_counter = Signal(self._config.event_tick_counter_width, init=0)
         rx_counter = Signal(self._config.transfer_total_count, init=0)
-        with m.FSM(init="IDLE"):
+        with m.FSM(init="IDLE") as fsm:
             with m.State("IDLE"):
                 # enable & 受信データをStreamが吸った後 & StartBit検知で受信開始
                 with m.If(self.en & ~rx_data_valid & ~self.rx):
@@ -336,9 +343,15 @@ class UartRx(wiring.Component):
                     )
                     # 正解ならpush、不正解ならIdleに戻る
                     with m.If(parity_bit == expect_parity):
+                        m.d.sync += [
+                            self.parity_err.eq(0),
+                        ]
                         m.next = "PUSH_DATA"
                     with m.Else():
                         # parity errorの場合はpushしない
+                        m.d.sync += [
+                            self.parity_err.eq(1),
+                        ]
                         m.next = "IDLE"
             with m.State("PUSH_DATA"):
                 # StopBitは待つ必要ない（次回のStartBit監視すればよいため）
@@ -346,3 +359,7 @@ class UartRx(wiring.Component):
                     rx_data_valid.eq(1),
                 ]
                 m.next = "IDLE"
+
+        m.d.sync += [
+            self.busy.eq(~fsm.ongoing("IDLE")),
+        ]

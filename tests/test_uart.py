@@ -105,9 +105,11 @@ def run_uart_tx_send(
 
             # start bitのsample pointまで1/4周期待ち
             await ctx.tick().repeat(sample_point)
+            assert ctx.get(dut.busy) == 1, "busy state error"
 
             # start bit飛ばす
             await ctx.tick().repeat(period_count)
+            assert ctx.get(dut.busy) == 1, "busy state error"
             # データビット読んでLSBから合成
             read_data = 0
             for i in range(num_data_bit):
@@ -130,6 +132,7 @@ def run_uart_tx_send(
                 logging.debug(
                     f"parity bit: expect {expect_parity}, actual {current_bit}"
                 )
+                assert ctx.get(dut.busy) == 1, "busy state error"
                 assert current_bit == expect_parity, (
                     f"parity bit error: expect {expect_parity}, actual {current_bit}"
                 )
