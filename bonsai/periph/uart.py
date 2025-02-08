@@ -27,7 +27,7 @@ class UartConfig:
     parity: UartParity = UartParity(UartParity.NONE)
 
     @classmethod
-    def default(cls, clk_freq: float) -> "UartConfig":
+    def from_freq(cls, clk_freq: float) -> "UartConfig":
         return cls(clk_freq=clk_freq)
 
     @property
@@ -307,7 +307,7 @@ class UartRx(wiring.Component):
                     # イベント周期でデータキャプチャ
                     m.d.sync += [
                         div_counter.eq(0),  # イベント周期のカウンタはクリア
-                        rx_data.bit_select(rx_counter).eq(self.rx),
+                        rx_data.bit_select(rx_counter, 1).eq(self.rx),
                     ]
                     with m.If(rx_counter < self._config.num_data_bit - 1):
                         # データビット受信中なので1bit移動
@@ -363,3 +363,4 @@ class UartRx(wiring.Component):
         m.d.sync += [
             self.busy.eq(~fsm.ongoing("IDLE")),
         ]
+        return m

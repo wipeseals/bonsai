@@ -37,12 +37,11 @@ def build(args: argparse.Namespace) -> None:
         logging.info("Generating Verilog files for all components")
 
         clk_freq = 100e6
-        uart_config = UartConfig(clk_freq=clk_freq, baud_rate=115200)
         target_components: List[Elaboratable] = [
-            Top(periph_clk_freq=clk_freq, uart_config=uart_config),
+            Top(periph_clk_freq=clk_freq),
             Timer(clk_freq=clk_freq, default_period_seconds=1.0),
-            UartTx(config=uart_config),
-            UartRx(config=uart_config),
+            UartTx(config=UartConfig.from_freq(clk_freq=clk_freq)),
+            UartRx(config=UartConfig.from_freq(clk_freq=clk_freq)),
         ]
         for component in target_components:
             filename = f"{component.__class__.__name__}"

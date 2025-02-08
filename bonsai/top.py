@@ -24,7 +24,7 @@ from amaranth.utils import ceil_log2
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer, TimerMode
-from periph.uart import UartConfig, UartTx
+from periph.uart import UartConfig, UartRx, UartTx
 
 
 class VideoPixelLayout(data.StructLayout):
@@ -232,17 +232,18 @@ class Top(wiring.Component):
     def __init__(
         self,
         periph_clk_freq: float,
-        uart_config: UartConfig,
         *,
         src_loc_at=0,
     ):
         self.timer = Timer(clk_freq=periph_clk_freq, default_period_seconds=1.0)
-        self.uart_tx = UartTx(config=uart_config)
+        self.uart_tx = UartTx(config=UartConfig.from_freq(clk_freq=periph_clk_freq))
+        self.uart_rx = UartRx(config=UartConfig.from_freq(clk_freq=periph_clk_freq))
 
         super().__init__(
             {
                 "ovf": Out(1),
                 "tx": Out(1),
+                "rx": In(1),
             },
             src_loc_at=src_loc_at,
         )
@@ -251,6 +252,7 @@ class Top(wiring.Component):
         m = Module()
         m.submodules.timer = self.timer
         m.submodules.uart_tx = self.uart_tx
+        m.submodules.uart_rx = self.uart_rx
 
         # Timer
         m.d.comb += [
@@ -264,22 +266,19 @@ class Top(wiring.Component):
             self.timer.mode.eq(TimerMode.FREERUN_WITH_CLEAR),
         ]
 
-        # uart_tx test
-        char_start = ord(" ")
-        char_end = ord("~")
-        tx_data = Signal(8, reset=0)
-        with m.If(self.uart_tx.stream.ready):
-            with m.If(tx_data < char_end):
-                m.d.sync += tx_data.eq(tx_data + 1)
-            with m.Else():
-                m.d.sync += tx_data.eq(char_start)
+        # uart loopback
         m.d.comb += [
             # External
+            self.uart_rx.rx.eq(self.rx),
             self.tx.eq(self.uart_tx.tx),
-            # Internal
-            self.uart_tx.stream.valid.eq(1),
-            self.uart_tx.stream.payload.eq(tx_data),
+            # Internal RX
+            self.uart_rx.en.eq(1),
+            # Internal TX
             self.uart_tx.en.eq(1),
+            # RX->TX Loopback
+            self.uart_tx.stream.payload.eq(self.uart_rx.stream.payload),
+            self.uart_tx.stream.valid.eq(self.uart_rx.stream.valid),
+            self.uart_rx.stream.ready.eq(self.uart_tx.stream.ready),
         ]
 
         return m
@@ -324,7 +323,7 @@ class PlatformTop(Elaboratable):
         m.d.comb += [
             ClockSignal("sync").eq(clk27_ibuf.i),
             ClockSignal("core_sync").eq(o_clkout),
-            ClockSignal("video_sync").eq(clk27_ibuf.i),  # .eq(o_clkoutd),
+            ClockSignal("video_sync").eq(o_clkoutd),
         ]
 
         ##################################################################
@@ -332,7 +331,6 @@ class PlatformTop(Elaboratable):
         periph_clk_freq = 27e6
         m.submodules.top = Top(
             periph_clk_freq=periph_clk_freq,
-            uart_config=UartConfig.default(clk_freq=periph_clk_freq),
         )
 
         ##################################################################
@@ -408,9 +406,11 @@ class PlatformTop(Elaboratable):
 
         uart = platform.request("uart", 0, dir="-")
         uart_tx = io.Buffer("o", uart.tx)
-        m.submodules += [uart_tx]
+        uart_rx = io.Buffer("i", uart.rx)
+        m.submodules += [uart_tx, uart_rx]
         m.d.comb += [
             uart_tx.o.eq(top.tx),
+            top.rx.eq(uart_rx.i),
         ]
 
         return m
