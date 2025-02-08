@@ -260,7 +260,7 @@ class UartRx(wiring.Component):
 
         # 受信データ格納
         rx_data = Signal(self._config.num_data_bit, init=0)
-        rx_data_valid = Signal(0, init=0)
+        rx_data_valid = Signal(1, init=0)
         # 受信データをstreamに転送
         m.d.comb += [
             self.stream.payload.eq(rx_data),
@@ -280,13 +280,14 @@ class UartRx(wiring.Component):
                     # data clear
                     m.d.sync += [
                         div_counter.eq(0),
+                        rx_counter.eq(0),
                         rx_data.eq(0),
                         rx_data_valid.eq(0),
                     ]
                     m.next = "START_BIT"
             with m.State("START_BIT"):
                 # data capture用に 1/2周期遅らせる
-                with m.If(div_counter < self._config.event_tick_count // 2 - 1):
+                with m.If(div_counter < (self._config.event_tick_count // 2 - 1)):
                     m.d.sync += [
                         div_counter.eq(div_counter + 1),
                     ]
@@ -294,6 +295,7 @@ class UartRx(wiring.Component):
                     # 現位置はStartBitなので、次のEvent周期からデータキャプチャ
                     m.d.sync += [
                         div_counter.eq(0),
+                        rx_counter.eq(0),
                     ]
                     m.next = "DATA"
             with m.State("DATA"):
@@ -315,6 +317,9 @@ class UartRx(wiring.Component):
                         ]
                     with m.Else():
                         # データビット受信完了
+                        m.d.sync += [
+                            rx_counter.eq(0),
+                        ]
                         with m.If(self._config.parity == UartParity.NONE):
                             m.next = "PUSH_DATA"
                         with m.Else():
