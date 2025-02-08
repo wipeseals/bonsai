@@ -251,6 +251,7 @@ class UartRx(wiring.Component):
                 "stream": Out(stream.Signature(config.num_data_bit)),
                 "busy": Out(1),
                 "parity_err": Out(1),
+                "ovf_err": Out(1),
             },
             src_loc_at=src_loc_at,
         )
@@ -274,17 +275,17 @@ class UartRx(wiring.Component):
 
         div_counter = Signal(self._config.event_tick_counter_width, init=0)
         rx_counter = Signal(self._config.transfer_total_count, init=0)
+        rx_tmp_data = Signal(self._config.num_data_bit, init=0)
         with m.FSM(init="IDLE") as fsm:
             with m.State("IDLE"):
                 # enable & 受信データをStreamが吸った後 & StartBit検知で受信開始
-                # streamにFIFOが無いと次を取りこぼす想定
-                with m.If(self.en & ~rx_data_valid & ~self.rx):
+                # streamにFIFOが無いと次を取りこぼす想定だが、start_bitで同期取らずに無視すると、Streamが捌けたタイミングの途中データをStartBitに誤認識する可能性がある
+                with m.If(self.en & ~self.rx):
                     # data clear
                     m.d.sync += [
                         div_counter.eq(0),
                         rx_counter.eq(0),
-                        rx_data.eq(0),
-                        rx_data_valid.eq(0),
+                        rx_tmp_data.eq(0),  # 受信データ初期化
                     ]
                     m.next = "START_BIT"
             with m.State("START_BIT"):
@@ -310,7 +311,7 @@ class UartRx(wiring.Component):
                     # イベント周期でデータキャプチャ
                     m.d.sync += [
                         div_counter.eq(0),  # イベント周期のカウンタはクリア
-                        rx_data.bit_select(rx_counter, 1).eq(self.rx),
+                        rx_tmp_data.bit_select(rx_counter, 1).eq(self.rx),
                     ]
                     with m.If(rx_counter < self._config.num_data_bit - 1):
                         # データビット受信中なので1bit移動
@@ -323,7 +324,11 @@ class UartRx(wiring.Component):
                             rx_counter.eq(0),
                         ]
                         with m.If(self._config.parity == UartParity.NONE):
-                            m.next = "PUSH_DATA"
+                            # エラーなし扱いで次へ
+                            m.d.sync += [
+                                self.parity_err.eq(0),
+                            ]
+                            m.next = "STOP_BIT"
                         with m.Else():
                             m.next = "PARITY"
             with m.State("PARITY"):
@@ -338,33 +343,63 @@ class UartRx(wiring.Component):
                         div_counter.eq(0),
                     ]
                     # Parity bit受信
-                    parity_bit = self.rx
+                    actual_parity = self.rx
                     # 正解計算
-                    event_parity = rx_data.xor()
+                    event_parity = rx_tmp_data.xor()
                     odd_parity = ~event_parity
                     expect_parity = (
                         odd_parity
                         if self._config.parity == UartParity.ODD
                         else event_parity
                     )
-                    # 正解ならpush、不正解ならIdleに戻る
-                    with m.If(parity_bit == expect_parity):
+                    # Parity成否
+                    m.d.sync += [
+                        self.parity_err.eq(actual_parity == expect_parity),
+                    ]
+                    m.next = "STOP_BIT"
+            with m.State("STOP_BIT"):
+                # またなくてよいかと考えていたが、sync cyc最終データの次cycでpush_data->idleで進むんだ場合
+                # 最終データが0のケースで誤動作するため、stop_bit時間分は待機
+                with m.If(div_counter < self._config.event_tick_count - 1):
+                    # イベント周期までカウント
+                    m.d.sync += [
+                        div_counter.eq(div_counter + 1),
+                    ]
+                with m.Else():
+                    with m.If(rx_counter < self._config.num_stop_bit - 1):
                         m.d.sync += [
-                            self.parity_err.eq(0),
+                            div_counter.eq(0),
+                            rx_counter.eq(rx_counter + 1),
                         ]
-                        m.next = "PUSH_DATA"
                     with m.Else():
-                        # parity errorの場合はpushしない
+                        # 終了
                         m.d.sync += [
-                            self.parity_err.eq(1),
+                            rx_counter.eq(0),
                         ]
+                        # データ送信
+                        with m.If(rx_data_valid):
+                            # すでにデータがある場合はoverflow。データは無視
+                            m.d.sync += [
+                                self.ovf_err.eq(1),  # overflow
+                            ]
+                        with m.Else():
+                            with m.If(self.parity_err):
+                                # parityエラーがあればデータは無視
+                                m.d.sync += [
+                                    self.ovf_err.eq(
+                                        0
+                                    ),  # overflowはしていないのでクリア
+                                ]
+                            with m.Else():
+                                # データをstreamにpush
+                                m.d.sync += [
+                                    rx_data_valid.eq(1),
+                                    rx_data.eq(rx_tmp_data),
+                                    self.ovf_err.eq(
+                                        0
+                                    ),  # overflowはしていないのでクリア
+                                ]
                         m.next = "IDLE"
-            with m.State("PUSH_DATA"):
-                # StopBitは待つ必要ない（次回のStartBit監視すればよいため）
-                m.d.sync += [
-                    rx_data_valid.eq(1),
-                ]
-                m.next = "IDLE"
 
         m.d.sync += [
             self.busy.eq(~fsm.ongoing("IDLE")),
