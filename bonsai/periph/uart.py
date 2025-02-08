@@ -83,6 +83,32 @@ class UartConfig:
         assert count > 0, "transfer_counter_width must be positive"
         return count
 
+    @property
+    def baud_rate_error(self) -> float:
+        """
+        clk_freqで駆動された場合のボーレート誤差率を計算します。
+        このメソッドは、クロック周波数とイベントティックカウントに基づいて実際のボーレートを計算し、
+        設定されたボーレートに対する誤差率を算出します。
+        戻り値:
+            float: ボーレート誤差率（パーセンテージ）
+        説明:
+        actual_baud_rate = self.clk_freq / self.event_tick_count:
+            - self.clk_freq: クロック周波数を表します。
+            - self.event_tick_count: クロック周波数で駆動された場合に設定されたボーレートでイベントを発火するために必要なティック数を表します。
+            - この式は、クロック周波数をイベントティックカウントで割ることで実際のボーレートを計算します。
+        error = ((actual_baud_rate - self.baud_rate) / self.baud_rate) * 100:
+            - actual_baud_rate: 上記で計算された実際のボーレート。
+            - self.baud_rate: 設定されたボーレート。
+            - この式は、実際のボーレートと設定されたボーレートの間のパーセンテージ誤差を計算します。
+            - (actual_baud_rate - self.baud_rate): 実際のボーレートと設定されたボーレートの差を計算します。
+            - self.baud_rateで割ることで相対誤差を求めます。
+            - 100を掛けることで相対誤差をパーセンテージに変換します。
+        このプロパティは、クロック周波数で駆動された場合の設定されたボーレートからのパーセンテージ偏差を返し、ボーレートの精度を評価することができます。
+        """
+        actual_baud_rate = self.clk_freq / self.event_tick_count
+        error = ((actual_baud_rate - self.baud_rate) / self.baud_rate) * 100
+        return error
+
 
 class UartTx(wiring.Component):
     def __init__(self, config: UartConfig, *, src_loc_at=0):
