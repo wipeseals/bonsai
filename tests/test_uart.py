@@ -1,5 +1,6 @@
 import logging
 import math
+from typing import List
 
 import pytest
 from amaranth.sim import SimulatorContext
@@ -7,54 +8,31 @@ from amaranth.sim import SimulatorContext
 from bonsai.periph.uart import UartConfig, UartParity, UartRx, UartTx
 from bonsai.util import Simulation, even_parity, odd_parity
 
-
-@pytest.mark.parametrize(
-    "clk_freq, baudrate, num_data_bit, num_stop_bit, parity",
-    [
-        (10e6, 115200, 8, 1, UartParity.NONE),
-        (100e6, 115200, 8, 1, UartParity.NONE),
-        (100e6, 921600, 8, 1, UartParity.NONE),
-    ],
-)
-def test_uart_rx_recv_short(
-    clk_freq: float,
-    baudrate: int,
-    num_data_bit: int,
-    num_stop_bit: int,
-    parity: UartParity,
-):
-    run_uart_rx_recv(
-        clk_freq=clk_freq,
-        baudrate=baudrate,
-        num_data_bit=num_data_bit,
-        num_stop_bit=num_stop_bit,
-        parity=parity,
-    )
+MIN_TEST_CASE: List[UartConfig] = [
+    UartConfig(clk_freq=10e6, baud_rate=115200, num_data_bit=8, num_stop_bit=1),
+    UartConfig(clk_freq=100e6, baud_rate=115200, num_data_bit=8, num_stop_bit=1),
+    UartConfig(clk_freq=100e6, baud_rate=921600, num_data_bit=8, num_stop_bit=1),
+]
 
 
-def run_uart_rx_recv(
-    clk_freq: float,
-    baudrate: int,
-    num_data_bit: int,
-    num_stop_bit: int,
-    parity: UartParity,
-):
-    config = UartConfig(
-        clk_freq=clk_freq,
-        baud_rate=baudrate,
-        num_data_bit=num_data_bit,
-        num_stop_bit=num_stop_bit,
-        parity=parity,
-    )
+@pytest.mark.parametrize("config", MIN_TEST_CASE)
+def test_uart_rx_recv_short(config: UartConfig):
+    run_uart_rx_recv(config)
+
+
+def run_uart_rx_recv(config: UartConfig):
     dut = UartRx(config=config)
     send_datas = list(
-        [x & ((1 << num_data_bit) - 1) for x in [0xFF, 0x00, 0xA5, 0x3C, 0xEF, 0x12]]
+        [
+            x & ((1 << config.num_data_bit) - 1)
+            for x in [0xFF, 0x00, 0xA5, 0x3C, 0xEF, 0x12]
+        ]
     )
 
     # データ更新周期
-    period = 1 / baudrate
+    period = 1 / config.baud_rate
     # 1ビットあたりのクロック数
-    period_count = int(period / (1 / clk_freq))
+    period_count = int(period / config.clk_period)
     # start bit検出した後、1/2周期待った地点をサンプリングポイントとする
     sample_point = math.ceil(period_count / 2)
 
@@ -72,7 +50,7 @@ def run_uart_rx_recv(
             ctx.set(dut.rx, 0)
             await ctx.tick().repeat(period_count)
             # データビット送信
-            for i in range(num_data_bit):
+            for i in range(config.num_data_bit):
                 current_bit = (expect_data >> i) & 1
                 ctx.set(dut.rx, current_bit)
                 logging.debug(
@@ -81,18 +59,18 @@ def run_uart_rx_recv(
                 assert ctx.get(dut.busy) == 1, "busy state error"
                 await ctx.tick().repeat(period_count)
             # パリティビット送信
-            if parity != UartParity.NONE:
+            if config.parity != UartParity.NONE:
                 expect_parity = (
-                    odd_parity(expect_data, num_data_bit)
-                    if parity == UartParity.ODD
-                    else even_parity(expect_data, num_data_bit)
+                    odd_parity(expect_data, config.num_data_bit)
+                    if config.parity == UartParity.ODD
+                    else even_parity(expect_data, config.num_data_bit)
                 )
                 ctx.set(dut.rx, expect_parity)
                 logging.debug(f"parity bit: {expect_parity}")
                 await ctx.tick().repeat(period_count)
             assert ctx.get(dut.parity_err) == 0, "parity error state error"
             # stop bit
-            for i in range(num_stop_bit):
+            for i in range(config.num_stop_bit):
                 ctx.set(dut.rx, 1)
                 await ctx.tick().repeat(period_count)
                 logging.debug("stop bit: 1")
@@ -114,60 +92,31 @@ def run_uart_rx_recv(
             ctx.set(dut.stream.ready, 0)
 
     Simulation.run(
-        name=f"{run_uart_rx_recv.__name__}_baudrate{baudrate}_num_data_bit{num_data_bit}_num_stop_bit{num_stop_bit}_parity{parity}",
+        name=f"{run_uart_rx_recv.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench,
-        clock=clk_freq,
+        clock=config.clk_freq,
     )
 
 
-@pytest.mark.parametrize(
-    "clk_freq, baudrate, num_data_bit, num_stop_bit, parity",
-    [
-        (10e6, 115200, 8, 1, UartParity.NONE),
-        (100e6, 115200, 8, 1, UartParity.NONE),
-        (100e6, 921600, 8, 1, UartParity.NONE),
-    ],
-)
-def test_uart_tx_send_short(
-    clk_freq: float,
-    baudrate: int,
-    num_data_bit: int,
-    num_stop_bit: int,
-    parity: UartParity,
-):
-    run_uart_tx_send(
-        clk_freq=clk_freq,
-        baudrate=baudrate,
-        num_data_bit=num_data_bit,
-        num_stop_bit=num_stop_bit,
-        parity=parity,
-    )
+@pytest.mark.parametrize("config", MIN_TEST_CASE)
+def test_uart_tx_send_short(config: UartConfig):
+    run_uart_tx_send(config)
 
 
-def run_uart_tx_send(
-    clk_freq: float,
-    baudrate: int,
-    num_data_bit: int,
-    num_stop_bit: int,
-    parity: UartParity,
-):
-    config = UartConfig(
-        clk_freq=clk_freq,
-        baud_rate=baudrate,
-        num_data_bit=num_data_bit,
-        num_stop_bit=num_stop_bit,
-        parity=parity,
-    )
+def run_uart_tx_send(config: UartConfig):
     dut = UartTx(config=config)
     send_datas = list(
-        [x & ((1 << num_data_bit) - 1) for x in [0xFF, 0x00, 0xA5, 0x3C, 0xEF, 0x12]]
+        [
+            x & ((1 << config.num_data_bit) - 1)
+            for x in [0xFF, 0x00, 0xA5, 0x3C, 0xEF, 0x12]
+        ]
     )
 
     # データ更新周期
-    period = 1 / baudrate
+    period = 1 / config.baud_rate
     # 1ビットあたりのクロック数
-    period_count = int(period / (1 / clk_freq))
+    period_count = int(period / config.clk_period)
     # start bit検出した後、1/2周期待った地点をサンプリングポイントとする
     sample_point = math.ceil(period_count / 2)
 
@@ -203,7 +152,7 @@ def run_uart_tx_send(
             assert ctx.get(dut.busy) == 1, "busy state error"
             # データビット読んでLSBから合成
             read_data = 0
-            for i in range(num_data_bit):
+            for i in range(config.num_data_bit):
                 current_bit = ctx.get(dut.tx)
                 read_data = read_data | (current_bit << i)
                 logging.debug(f"[{i:02d}] read progress data: {read_data:08b}")
@@ -213,12 +162,12 @@ def run_uart_tx_send(
                 f"data bit error: expect {data:02x}, actual {read_data:02x}"
             )
             # パリティビット読んで合成
-            if parity != UartParity.NONE:
+            if config.parity != UartParity.NONE:
                 current_bit = ctx.get(dut.tx)
                 expect_parity = (
-                    odd_parity(read_data, num_data_bit)
-                    if parity == UartParity.ODD
-                    else even_parity(read_data, num_data_bit)
+                    odd_parity(read_data, config.num_data_bit)
+                    if config.parity == UartParity.ODD
+                    else even_parity(read_data, config.num_data_bit)
                 )
                 logging.debug(
                     f"parity bit: expect {expect_parity}, actual {current_bit}"
@@ -229,14 +178,14 @@ def run_uart_tx_send(
                 )
                 await ctx.tick().repeat(period_count)
             # stop bit
-            for i in range(num_stop_bit):
+            for i in range(config.num_stop_bit):
                 logging.debug(f"[{i:02d}] stop bit: {ctx.get(dut.tx)}")
                 assert ctx.get(dut.tx) == 1, "stop bit error"
                 await ctx.tick().repeat(period_count)
 
     Simulation.run(
-        name=f"{run_uart_tx_send.__name__}_baudrate{baudrate}_num_data_bit{num_data_bit}_num_stop_bit{num_stop_bit}_parity{parity}",
+        name=f"{run_uart_tx_send.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench,
-        clock=clk_freq,
+        clock=config.clk_freq,
     )
