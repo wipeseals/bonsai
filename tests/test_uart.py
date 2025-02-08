@@ -34,11 +34,7 @@ MIN_TEST_CASE: List[UartConfig] = [
 
 
 @pytest.mark.parametrize("config", MIN_TEST_CASE)
-def test_uart_rx_recv_short(config: UartConfig):
-    run_uart_rx_recv(config)
-
-
-def run_uart_rx_recv(config: UartConfig):
+def test_uart_rx(config: UartConfig):
     dut = UartRx(config=config)
     send_datas = list(
         [
@@ -110,7 +106,7 @@ def run_uart_rx_recv(config: UartConfig):
             ctx.set(dut.stream.ready, 0)
 
     Simulation.run(
-        name=f"{run_uart_rx_recv.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
+        name=f"{test_uart_rx.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench,
         clock=config.clk_freq,
@@ -118,11 +114,7 @@ def run_uart_rx_recv(config: UartConfig):
 
 
 @pytest.mark.parametrize("config", MIN_TEST_CASE)
-def test_uart_tx_send_short(config: UartConfig):
-    run_uart_tx_send(config)
-
-
-def run_uart_tx_send(config: UartConfig):
+def test_uart_tx(config: UartConfig):
     dut = UartTx(config=config)
     send_datas = list(
         [
@@ -202,7 +194,7 @@ def run_uart_tx_send(config: UartConfig):
                 await ctx.tick().repeat(period_count)
 
     Simulation.run(
-        name=f"{run_uart_tx_send.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
+        name=f"{test_uart_tx.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench,
         clock=config.clk_freq,
