@@ -76,9 +76,9 @@ def run_uart_rx_recv(
                 current_bit = (expect_data >> i) & 1
                 ctx.set(dut.rx, current_bit)
                 logging.debug(
-                    f"[{i:02d}] send progress data:{expect_data:02x} rx:{current_bit}"
+                    f"[{i:02d}] send progress data:{expect_data:08b} rx:{current_bit}"
                 )
-                # assert ctx.get(dut.busy) == 1, "busy state error"
+                assert ctx.get(dut.busy) == 1, "busy state error"
                 await ctx.tick().repeat(period_count)
             # パリティビット送信
             if parity != UartParity.NONE:
@@ -90,11 +90,13 @@ def run_uart_rx_recv(
                 ctx.set(dut.rx, expect_parity)
                 logging.debug(f"parity bit: {expect_parity}")
                 await ctx.tick().repeat(period_count)
+            assert ctx.get(dut.parity_err) == 0, "parity error state error"
             # stop bit
             for i in range(num_stop_bit):
                 ctx.set(dut.rx, 1)
                 await ctx.tick().repeat(period_count)
                 logging.debug("stop bit: 1")
+                assert ctx.get(dut.ovf_err) == 0, "parity error state error"
             # validになるのを待って受信
             ctx.set(dut.stream.ready, 1)
             while ctx.get(dut.stream.valid) == 0:
@@ -110,7 +112,6 @@ def run_uart_rx_recv(
             await ctx.tick()
             assert ctx.get(dut.stream.valid) == 0, "stream valid state error"
             ctx.set(dut.stream.ready, 0)
-            await ctx.tick()
 
     Simulation.run(
         name=f"{run_uart_rx_recv.__name__}_baudrate{baudrate}_num_data_bit{num_data_bit}_num_stop_bit{num_stop_bit}_parity{parity}",
