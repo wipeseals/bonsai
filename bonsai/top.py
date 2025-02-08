@@ -411,7 +411,7 @@ class PlatformTop(Elaboratable):
         m.d.comb += [
             leds[0].o.eq(top.ovf),
             leds[1].o.eq(tx_busy_status),
-            leds[2].o.eq(tx_busy_status),
+            leds[2].o.eq(rx_busy_status),
             leds[3].o.eq(Const(1)),
             leds[4].o.eq(button_data[0]),
             leds[5].o.eq(button_data[1]),
