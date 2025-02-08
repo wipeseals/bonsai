@@ -125,8 +125,9 @@ class Simulation:
 
         log_path = generate_dist_file_path(f"{name}.log")
         vcd_path = generate_dist_file_path(f"{name}.vcd")
+        gtkw_path = generate_dist_file_path(f"{name}.gtkw")
         try:
-            with sim.write_vcd(vcd_path):
+            with sim.write_vcd(vcd_path, gtkw_file=gtkw_path):
                 # Redirect stdout to a file
                 origin_stdout = sys.stdout
                 with open(log_path, "w", encoding="utf-8") as f:
