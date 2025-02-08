@@ -8,7 +8,7 @@ from amaranth.build.plat import Platform
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer
-from periph.uart import UartTx
+from periph.uart import UartConfig, UartRx, UartTx
 from top import PlatformTop, Top
 
 SUPPORT_DEVICES: Dict[str, Platform] = {
@@ -37,10 +37,12 @@ def build(args: argparse.Namespace) -> None:
         logging.info("Generating Verilog files for all components")
 
         clk_freq = 100e6
+        uart_config = UartConfig(clk_freq=clk_freq, baud_rate=115200)
         target_components: List[Elaboratable] = [
-            Top(clk_freq=clk_freq, period_sec=1.0),
+            Top(periph_clk_freq=clk_freq, uart_config=uart_config),
             Timer(clk_freq=clk_freq, default_period_seconds=1.0),
-            UartTx(clk_freq=clk_freq, baud_rate=115200),
+            UartTx(config=uart_config),
+            UartRx(config=uart_config),
         ]
         for component in target_components:
             filename = f"{component.__class__.__name__}"
@@ -66,7 +68,7 @@ def main() -> None:
     parser_build = subparsers.add_parser("build", help="build the project")
     parser_build.add_argument(
         "--platform",
-        default="tangnano9k",
+        default="",
         choices=[""] + list(SUPPORT_DEVICES.keys()),
         help="Set the target platform",
     )

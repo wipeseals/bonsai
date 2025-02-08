@@ -231,14 +231,12 @@ class VgaOut(wiring.Component):
 class Top(wiring.Component):
     def __init__(
         self,
-        clk_freq: float,
-        period_sec: float = 1.0,
-        baud_rate: int = 115200,
+        periph_clk_freq: float,
+        uart_config: UartConfig,
         *,
         src_loc_at=0,
     ):
-        self.timer = Timer(clk_freq=clk_freq, default_period_seconds=period_sec)
-        uart_config = UartConfig(clk_freq=clk_freq, baud_rate=baud_rate)
+        self.timer = Timer(clk_freq=periph_clk_freq, default_period_seconds=1.0)
         self.uart_tx = UartTx(config=uart_config)
 
         super().__init__(
@@ -288,50 +286,9 @@ class Top(wiring.Component):
 
 
 class PlatformTop(Elaboratable):
-    def _elaborate_arty_a7_35(self, m: Module, platform: Platform):
-        NUM_LED = 4
-        leds = [
-            io.Buffer("o", platform.request("led", i, dir="-")) for i in range(NUM_LED)
-        ]
-        # use color leds
-        NUM_RGB_LED = 4
-        rgb_leds = [platform.request("rgb_led", i, dir="-") for i in range(NUM_RGB_LED)]
-        leds.extend([io.Buffer("o", led.r) for led in rgb_leds])
-        leds.extend([io.Buffer("o", led.g) for led in rgb_leds])
-        leds.extend([io.Buffer("o", led.b) for led in rgb_leds])
+    def _elabolate_tangnano_9k(self, platform: Platform) -> Module:
+        m = Module()
 
-        NUM_BUTTON = 4
-        buttons = [
-            io.Buffer("i", platform.request("button", i, dir="-"))
-            for i in range(NUM_BUTTON)
-        ]
-        button_data = Cat([button.i for button in buttons])
-        NUM_SWITCH = 4
-        switches = [
-            io.Buffer("i", platform.request("switch", i, dir="-"))
-            for i in range(NUM_SWITCH)
-        ]
-        switch_data = Cat([switch.i for switch in switches])
-
-        m.submodules += leds + buttons + switches
-        top: Top = m.submodules.top
-
-        COUNTER_WIDTH = NUM_LED + NUM_RGB_LED * 3
-        counter = Signal(COUNTER_WIDTH)
-        with m.If(top.ovf):
-            m.d.sync += counter.eq(counter + 1 + button_data + switch_data)
-        # 各bitをLEDに割当
-        for i, led in enumerate(leds):
-            m.d.comb += [led.o.eq(counter[i])]
-
-        uart = platform.request("uart", 0, dir="-")
-        uart_tx = io.Buffer("o", uart.tx)
-        m.submodules += [uart_tx]
-        m.d.comb += [
-            uart_tx.o.eq(top.tx),
-        ]
-
-    def _elabolate_tangnano_9k(self, m: Module, platform: Platform):
         ##################################################################
         # Clock Setup
 
@@ -369,6 +326,14 @@ class PlatformTop(Elaboratable):
             ClockSignal("core_sync").eq(o_clkout),
             ClockSignal("video_sync").eq(clk27_ibuf.i),  # .eq(o_clkoutd),
         ]
+
+        ##################################################################
+        # Top
+        periph_clk_freq = 27e6
+        m.submodules.top = Top(
+            periph_clk_freq=periph_clk_freq,
+            uart_config=UartConfig.default(clk_freq=periph_clk_freq),
+        )
 
         ##################################################################
         # VGA
@@ -448,16 +413,13 @@ class PlatformTop(Elaboratable):
             uart_tx.o.eq(top.tx),
         ]
 
-    def elaborate(self, platform: Platform) -> Module:
-        m = Module()
-        m.submodules.top = Top(platform.default_clk_frequency, period_sec=1.0)
+        return m
 
+    def elaborate(self, platform: Platform) -> Module:
         # Platform specific elaboration
         if isinstance(platform, ArtyA7_35Platform):
-            self._elaborate_arty_a7_35(m, platform)
+            return self._elaborate_arty_a7_35(platform)
         elif isinstance(platform, TangNano9kPlatform):
-            self._elabolate_tangnano_9k(m, platform)
+            return self._elabolate_tangnano_9k(platform)
         else:
             logging.warning(f"Unsupported platform: {platform}")
-
-        return m
