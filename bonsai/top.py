@@ -24,7 +24,7 @@ from amaranth.utils import ceil_log2
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer, TimerMode
-from periph.uart import UartTx
+from periph.uart import UartConfig, UartTx
 
 
 class VideoPixelLayout(data.StructLayout):
@@ -238,7 +238,8 @@ class Top(wiring.Component):
         src_loc_at=0,
     ):
         self.timer = Timer(clk_freq=clk_freq, default_period_seconds=period_sec)
-        self.uart_tx = UartTx(clk_freq=clk_freq, baud_rate=baud_rate)
+        uart_config = UartConfig(clk_freq=clk_freq, baud_rate=baud_rate)
+        self.uart_tx = UartTx(config=uart_config)
 
         super().__init__(
             {
