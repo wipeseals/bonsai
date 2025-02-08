@@ -26,6 +26,10 @@ class UartConfig:
     num_stop_bit: int = 1
     parity: UartParity = UartParity(UartParity.NONE)
 
+    @classmethod
+    def default(cls, clk_freq: float) -> "UartConfig":
+        return cls(clk_freq=clk_freq)
+
     @property
     def clk_period(self) -> float:
         """
@@ -116,7 +120,7 @@ class UartTx(wiring.Component):
 
         super().__init__(
             {
-                "stream": In(stream.Signature(8)),
+                "stream": In(stream.Signature(config.num_data_bit)),
                 "en": In(1),
                 "tx": Out(1),
             },
@@ -228,3 +232,117 @@ class UartTx(wiring.Component):
                         ]
                         m.next = "IDLE"
         return m
+
+
+class UartRx(wiring.Component):
+    def __init__(self, config: UartConfig, *, src_loc_at=0):
+        self._config = config
+
+        super().__init__(
+            {
+                "rx": In(1),
+                "en": In(1),
+                "stream": Out(stream.Signature(config.num_data_bit)),
+            },
+            src_loc_at=src_loc_at,
+        )
+
+    def elaborate(self, platform: Platform) -> Module:
+        m = Module()
+
+        # 受信データ格納
+        rx_data = Signal(self._config.num_data_bit, init=0)
+        rx_data_valid = Signal(0, init=0)
+        # 受信データをstreamに転送
+        m.d.comb += [
+            self.stream.payload.eq(rx_data),
+            self.stream.valid.eq(rx_data_valid),
+        ]
+        # streamがrdyなら受信データをクリア
+        with m.If(self.stream.ready):
+            m.d.sync += [
+                rx_data_valid.eq(0),
+            ]
+
+        div_counter = Signal(self._config.event_tick_counter_width, init=0)
+        rx_counter = Signal(self._config.transfer_total_count, init=0)
+        with m.FSM(init="IDLE"):
+            with m.State("IDLE"):
+                # enable & 受信データをStreamが吸った後 & StartBit検知で受信開始
+                with m.If(self.en & ~rx_data_valid & ~self.rx):
+                    # data clear
+                    m.d.sync += [
+                        div_counter.eq(0),
+                        rx_data.eq(0),
+                        rx_data_valid.eq(0),
+                    ]
+                    m.next = "START_BIT"
+            with m.State("START_BIT"):
+                # data capture用に 1/4周期遅らせる
+                with m.If(div_counter < self._config.event_tick_count // 4 - 1):
+                    # 1/4周期経過までカウント待機
+                    m.d.sync += [
+                        div_counter.eq(div_counter + 1),
+                    ]
+                with m.Else():
+                    # 現位置はStartBitなので、次のEvent周期からデータキャプチャ
+                    m.d.sync += [
+                        div_counter.eq(0),
+                    ]
+                    m.next = "DATA"
+            with m.State("DATA"):
+                with m.If(div_counter < self._config.event_tick_count - 1):
+                    # イベント周期までカウント
+                    m.d.sync += [
+                        div_counter.eq(div_counter + 1),
+                    ]
+                with m.Else():
+                    # イベント周期でデータキャプチャ
+                    m.d.sync += [
+                        div_counter.eq(0),  # イベント周期のカウンタはクリア
+                        rx_data.bit_select(rx_counter).eq(self.rx),
+                    ]
+                    with m.If(rx_counter < self._config.num_data_bit - 1):
+                        # データビット受信中なので1bit移動
+                        m.d.sync += [
+                            rx_counter.eq(rx_counter + 1),
+                        ]
+                    with m.Else():
+                        # データビット受信完了
+                        with m.If(self._config.parity == UartParity.NONE):
+                            m.next = "PUSH_DATA"
+                        with m.Else():
+                            m.next = "PARITY"
+            with m.State("PARITY"):
+                with m.If(div_counter < self._config.event_tick_count - 1):
+                    # イベント周期までカウント
+                    m.d.sync += [
+                        div_counter.eq(div_counter + 1),
+                    ]
+                with m.Else():
+                    # イベントカウンタはもう使わない
+                    m.d.sync += [
+                        div_counter.eq(0),
+                    ]
+                    # Parity bit受信
+                    parity_bit = self.rx
+                    # 正解計算
+                    event_parity = rx_data.xor()
+                    odd_parity = ~event_parity
+                    expect_parity = (
+                        odd_parity
+                        if self._config.parity == UartParity.ODD
+                        else event_parity
+                    )
+                    # 正解ならpush、不正解ならIdleに戻る
+                    with m.If(parity_bit == expect_parity):
+                        m.next = "PUSH_DATA"
+                    with m.Else():
+                        # parity errorの場合はpushしない
+                        m.next = "IDLE"
+            with m.State("PUSH_DATA"):
+                # StopBitは待つ必要ない（次回のStartBit監視すればよいため）
+                m.d.sync += [
+                    rx_data_valid.eq(1),
+                ]
+                m.next = "IDLE"
