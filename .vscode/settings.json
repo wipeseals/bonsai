@@ -11,5 +11,10 @@
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": true
+    },
+    "files.watcherExclude": {
+        "**/build": true,
+        "**/dist": true,
+        "**/.git": true,
     }
 }

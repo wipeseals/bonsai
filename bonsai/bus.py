@@ -1,10 +1,9 @@
+from dataclasses import dataclass
 from typing import Literal, Optional
 
-import pydantic
 from amaranth import Module
 from amaranth.lib import enum, wiring
 from amaranth.lib.wiring import In, Out
-from pydantic.dataclasses import dataclass
 
 
 @dataclass
@@ -177,12 +176,13 @@ class WishboneSignature(wiring.Signature):
 
 
 class WishboneMaster(wiring.Component):
-    def __init__(self, spec: WishboneSpec):
+    def __init__(self, spec: WishboneSpec, *, src_loc_at=0):
         self._spec = spec
         super().__init__(
             {
                 "wb_bus": WishboneSignature(spec),
-            }
+            },
+            src_loc_at=src_loc_at,
         )
 
     def elaborate(self, platform):

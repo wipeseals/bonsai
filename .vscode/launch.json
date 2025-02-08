@@ -1,0 +1,32 @@
+{
+    // IntelliSense を使用して利用可能な属性を学べます。
+    // 既存の属性の説明をホバーして表示します。
+    // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "debug: build",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/bonsai/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "build",
+                "--platform",
+                "${input:platform}"
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "platform",
+            "type": "pickString",
+            "description": "Select the platform",
+            "options": [
+                "arty",
+                "tangnano9k"
+            ],
+            "default": "tangnano9k"
+        }
+    ]
+}
