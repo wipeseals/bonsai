@@ -9,9 +9,27 @@ from bonsai.periph.uart import UartConfig, UartParity, UartRx, UartTx
 from bonsai.util import Simulation, even_parity, odd_parity
 
 MIN_TEST_CASE: List[UartConfig] = [
-    UartConfig(clk_freq=10e6, baud_rate=115200, num_data_bit=8, num_stop_bit=1),
-    UartConfig(clk_freq=100e6, baud_rate=115200, num_data_bit=8, num_stop_bit=1),
-    UartConfig(clk_freq=100e6, baud_rate=921600, num_data_bit=8, num_stop_bit=1),
+    UartConfig(
+        clk_freq=10e6,
+        baud_rate=115200,
+        num_data_bit=8,
+        num_stop_bit=1,
+        parity=UartParity.NONE,
+    ),
+    UartConfig(
+        clk_freq=100e6,
+        baud_rate=115200,
+        num_data_bit=8,
+        num_stop_bit=1,
+        parity=UartParity.ODD,
+    ),
+    UartConfig(
+        clk_freq=100e6,
+        baud_rate=921600,
+        num_data_bit=8,
+        num_stop_bit=1,
+        parity=UartParity.EVEN,
+    ),
 ]
 
 
