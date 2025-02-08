@@ -266,8 +266,8 @@ class UartRx(wiring.Component):
             self.stream.payload.eq(rx_data),
             self.stream.valid.eq(rx_data_valid),
         ]
-        # streamがrdyなら受信データをクリア
-        with m.If(self.stream.ready):
+        # streamがvalid & rdyなら受け取られるので受信データをクリア
+        with m.If(self.stream.valid & self.stream.ready):
             m.d.sync += [
                 rx_data_valid.eq(0),
             ]
@@ -285,9 +285,8 @@ class UartRx(wiring.Component):
                     ]
                     m.next = "START_BIT"
             with m.State("START_BIT"):
-                # data capture用に 1/4周期遅らせる
-                with m.If(div_counter < self._config.event_tick_count // 4 - 1):
-                    # 1/4周期経過までカウント待機
+                # data capture用に 1/2周期遅らせる
+                with m.If(div_counter < self._config.event_tick_count // 2 - 1):
                     m.d.sync += [
                         div_counter.eq(div_counter + 1),
                     ]
