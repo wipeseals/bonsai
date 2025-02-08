@@ -244,6 +244,8 @@ class Top(wiring.Component):
                 "ovf": Out(1),
                 "tx": Out(1),
                 "rx": In(1),
+                "tx_busy": Out(1),
+                "rx_busy": Out(1),
             },
             src_loc_at=src_loc_at,
         )
@@ -271,6 +273,8 @@ class Top(wiring.Component):
             # External
             self.uart_rx.rx.eq(self.rx),
             self.tx.eq(self.uart_tx.tx),
+            self.tx_busy.eq(self.uart_tx.busy),
+            self.rx_busy.eq(self.uart_rx.busy),
             # Internal RX
             self.uart_rx.en.eq(1),
             # Internal TX
@@ -396,13 +400,22 @@ class PlatformTop(Elaboratable):
         m.submodules += leds + buttons
         top: Top = m.submodules.top
 
-        COUNTER_WIDTH = NUM_LED
-        counter = Signal(COUNTER_WIDTH)
-        with m.If(top.ovf):
-            m.d.sync += counter.eq(counter + 1 + button_data)
-        # 各bitをLEDに割当
-        for i, led in enumerate(leds):
-            m.d.comb += [led.o.eq(counter[i])]
+        tx_busy_status = Signal(1)
+        rx_busy_status = Signal(1)
+        with m.If(top.tx_busy):
+            m.d.sync += tx_busy_status.eq(~tx_busy_status)
+        with m.If(top.rx_busy):
+            m.d.sync += rx_busy_status.eq(~rx_busy_status)
+
+        # Status
+        m.d.comb += [
+            leds[0].o.eq(top.ovf),
+            leds[1].o.eq(tx_busy_status),
+            leds[2].o.eq(tx_busy_status),
+            leds[3].o.eq(Const(1)),
+            leds[4].o.eq(button_data[0]),
+            leds[5].o.eq(button_data[1]),
+        ]
 
         uart = platform.request("uart", 0, dir="-")
         uart_tx = io.Buffer("o", uart.tx)
