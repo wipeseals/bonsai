@@ -4,6 +4,10 @@
   {
    "Path" : "E:/repos/bonsai/eda/bonsai_tangnano9k/src/gowin_rpll/gowin_rpll.v",
    "Type" : "verilog"
+  },
+  {
+   "Path" : "E:/repos/bonsai/eda/bonsai_tangnano9k/src/psram_memory_interface_hs_2ch/psram_memory_interface_hs_2ch.v",
+   "Type" : "verilog"
   }
  ],
  "IncludePath" : [
