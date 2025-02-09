@@ -176,6 +176,14 @@ class Top(wiring.Component):
         psramc_signals = PsramPortSignature(
             data_width=32, addr_width=21, burst_num=4, port_num=2
         ).create()
+        # test pattern
+        with m.If(psramc_signals.init_calib0):
+            m.d.core_sync += [
+                psramc_signals.addr0.eq(psramc_signals.addr0 + 1),
+                psramc_signals.cmd0.eq(PsramCmd.READ),
+                psramc_signals.cmd_en0.eq(1),
+            ]
+
         m.submodules.psramc = psramc = Instance(
             "PSRAM_Memory_Interface_HS_2CH_Top",
             i_clk=ClockSignal("sync"),  # input clk
