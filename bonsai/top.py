@@ -3,6 +3,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from turtle import reset
+from typing import Any, Dict
 
 from amaranth import (
     Cat,
@@ -28,68 +29,63 @@ from periph.uart import UartConfig, UartRx, UartTx
 from periph.video import VgaConfig, VgaOut
 
 
+class PsramCmd(enum.IntEnum):
+    READ = 0
+    WRITE = 1
+
+
+class PsramPortSignature(wiring.Signature):
+    def __init__(self, data_width: int, addr_width: int, burst_num: int, port_num: int):
+        self._data_width = data_width
+        self._data_mask_width = data_width // 8
+        self._addr_width = addr_width
+        self._burst_num = burst_num
+        self._port_num = port_num
+        assert 0 < port_num <= 2, "port_num must be 1 or 2"
+        members: Dict[str, Any] = {}
+        for port_idx in range(port_num):
+            members[f"addr{port_idx}"] = Out(data_width)
+            members[f"cmd{port_idx}"] = Out(PsramCmd)
+            members[f"cmd_en{port_idx}"] = Out(1)
+            members[f"rd_data{port_idx}"] = In(data_width)
+            members[f"rd_data_valid{port_idx}"] = In(1)
+            members[f"wr_data{port_idx}"] = Out(data_width)
+            members[f"data_mask{port_idx}"] = Out(self._data_mask_width)
+            members[f"init_calib{port_idx}"] = In(1)
+
+        super().__init__(members)
+
+
 class Top(wiring.Component):
     def __init__(
         self,
-        periph_clk_freq: float,
         *,
         src_loc_at=0,
     ):
+        periph_clk_freq: float = 27e6
         self.timer = Timer(clk_freq=periph_clk_freq, default_period_seconds=1.0)
         self.uart_tx = UartTx(config=UartConfig.from_freq(clk_freq=periph_clk_freq))
         self.uart_rx = UartRx(config=UartConfig.from_freq(clk_freq=periph_clk_freq))
 
         super().__init__(
             {
-                "ovf": Out(1),
-                "tx": Out(1),
-                "rx": In(1),
-                "tx_busy": Out(1),
-                "rx_busy": Out(1),
+                # for GN1NR-9C internal PSRAM
+                "O_psram_ck": Out(2),  # output [1:0] O_psram_ck
+                "O_psram_ck_n": Out(2),  # output [1:0] O_psram_ck_n
+                "IO_psram_rwds": In(2),  # inout [1:0] IO_psram_rwds
+                "O_psram_reset_n": Out(2),  # output [1:0] O_psram_reset_n
+                "IO_psram_dq": In(16),  # inout [15:0] IO_psram_dq
+                "O_psram_cs_n": Out(2),  # output [1:0] O_psram_cs_n
             },
             src_loc_at=src_loc_at,
         )
 
     def elaborate(self, platform: Platform) -> Module:
-        m = Module()
-        m.submodules.timer = self.timer
-        m.submodules.uart_tx = self.uart_tx
-        m.submodules.uart_rx = self.uart_rx
+        # TODO: other platform specific logic
+        assert isinstance(platform, TangNano9kPlatform), (
+            f"Unsupported platform: {platform}"
+        )
 
-        # Timer
-        m.d.comb += [
-            # External
-            self.ovf.eq(self.timer.ovf),
-            # Internal
-            self.timer.en.eq(1),
-            self.timer.clr.eq(0),
-            self.timer.trig.eq(0),
-            self.timer.cmp_count_wr.eq(0),
-            self.timer.mode.eq(TimerMode.FREERUN_WITH_CLEAR),
-        ]
-
-        # uart loopback
-        m.d.comb += [
-            # External
-            self.uart_rx.rx.eq(self.rx),
-            self.tx.eq(self.uart_tx.tx),
-            self.tx_busy.eq(self.uart_tx.busy),
-            self.rx_busy.eq(self.uart_rx.busy),
-            # Internal RX
-            self.uart_rx.en.eq(1),
-            # Internal TX
-            self.uart_tx.en.eq(1),
-            # RX->TX Loopback
-            self.uart_tx.stream.payload.eq(self.uart_rx.stream.payload),
-            self.uart_tx.stream.valid.eq(self.uart_rx.stream.valid),
-            self.uart_rx.stream.ready.eq(self.uart_tx.stream.ready),
-        ]
-
-        return m
-
-
-class PlatformTop(Elaboratable):
-    def _elabolate_tangnano_9k(self, platform: Platform) -> Module:
         m = Module()
 
         ##################################################################
@@ -110,7 +106,7 @@ class PlatformTop(Elaboratable):
         m.submodules.clk27_ibuf = clk27_ibuf = io.Buffer("i", clk27)
         platform.add_file(
             "gowin_rpll.v",
-            Path("eda/bonsai_tangnano9k/src/gowin_rpll/gowin_rpll.v").read_text(),
+            Path(r"eda/bonsai_tangnano9k/src/gowin_rpll/gowin_rpll.v").read_text(),
         )
 
         # 132MHz
@@ -131,12 +127,88 @@ class PlatformTop(Elaboratable):
             ClockSignal("core_sync").eq(o_clkout),
             ClockSignal("video_sync").eq(o_clkoutd),
         ]
+        ##################################################################
+        # Timer
+        m.submodules.timer = self.timer
+        timer_toggle_sig = Signal(1, 0)
+        with m.If(self.timer.ovf):
+            m.d.sync += timer_toggle_sig.eq(~timer_toggle_sig)
+        m.d.comb += [
+            # Internal
+            self.timer.en.eq(1),
+            self.timer.clr.eq(0),
+            self.timer.trig.eq(0),
+            self.timer.cmp_count_wr.eq(0),
+            self.timer.mode.eq(TimerMode.FREERUN_WITH_CLEAR),
+        ]
 
         ##################################################################
-        # Top
-        periph_clk_freq = 27e6
-        m.submodules.top = Top(
-            periph_clk_freq=periph_clk_freq,
+        # uart loopback
+        m.submodules.uart_tx = self.uart_tx
+        m.submodules.uart_rx = self.uart_rx
+        uart = platform.request("uart", 0, dir="-")
+        m.submodules.uart_tx_pin = uart_tx_pin = io.Buffer("o", uart.tx)
+        m.submodules.uart_rx_pin = uart_rx_pin = io.Buffer("i", uart.rx)
+        m.d.comb += [
+            # External pins
+            uart_tx_pin.o.eq(self.uart_tx.tx),
+            self.uart_rx.rx.eq(uart_rx_pin.i),
+            # Internal RX
+            self.uart_rx.en.eq(1),
+            # Internal TX
+            self.uart_tx.en.eq(1),
+            # RX->TX Loopback
+            self.uart_tx.stream.payload.eq(self.uart_rx.stream.payload),
+            self.uart_tx.stream.valid.eq(self.uart_rx.stream.valid),
+            self.uart_rx.stream.ready.eq(self.uart_tx.stream.ready),
+        ]
+
+        ##################################################################
+        # PSRAM
+        platform.add_file(
+            "psram_memory_interface_hs_2ch.v",
+            Path(
+                r"eda/bonsai_tangnano9k/src/psram_memory_interface_hs_2ch/psram_memory_interface_hs_2ch.v"
+            ).read_text(),
+        )
+
+        psram_clkout = Signal(1)
+        psramc_signals = PsramPortSignature(
+            data_width=32, addr_width=21, burst_num=4, port_num=2
+        ).create()
+        m.submodules.psramc = psramc = Instance(
+            "PSRAM_Memory_Interface_HS_2CH_Top",
+            i_clk=ClockSignal("sync"),  # input clk
+            i_rst_n=Const(1),  # input rst_n
+            i_memory_clk=ClockSignal("core_sync"),  # input memory_clk
+            i_pll_lock=pll_lock,  # input pll_lock
+            # Topに出しておくと合成されるらしい...
+            o_O_psram_ck=self.O_psram_ck,  # output [1:0] O_psram_ck
+            o_O_psram_ck_n=self.O_psram_ck_n,  # output [1:0] O_psram_ck_n
+            i_IO_psram_rwds=self.IO_psram_rwds,  # inout [1:0] IO_psram_rwds
+            o_O_psram_reset_n=self.O_psram_reset_n,  # output [1:0] O_psram_reset_n
+            i_IO_psram_dq=self.IO_psram_dq,  # inout [15:0] IO_psram_dq
+            o_O_psram_cs_n=self.O_psram_cs_n,  # output [1:0] O_psram_cs_n
+            # 制御用Port0/1
+            o_init_calib0=psramc_signals.init_calib0,  # output init_calib0
+            o_init_calib1=psramc_signals.init_calib1,  # output init_calib1
+            # PSRAMC制御ロジック向け
+            o_clk_out=psram_clkout,  # output clk_out
+            # 制御用Port0/1
+            i_cmd0=psramc_signals.cmd0,  # input cmd0
+            i_cmd1=psramc_signals.cmd1,  # input cmd1
+            i_cmd_en0=psramc_signals.cmd_en0,  # input cmd_en0
+            i_cmd_en1=psramc_signals.cmd_en1,  # input cmd_en1
+            i_addr0=psramc_signals.addr0,  # input [20:0] addr0
+            i_addr1=psramc_signals.addr1,  # input [20:0] addr1
+            i_wr_data0=psramc_signals.wr_data0,  # input [31:0] wr_data0
+            i_wr_data1=psramc_signals.wr_data1,  # input [31:0] wr_data1
+            o_rd_data0=psramc_signals.rd_data0,  # output [31:0] rd_data0
+            o_rd_data1=psramc_signals.rd_data1,  # output [31:0] rd_data1
+            o_rd_data_valid0=psramc_signals.rd_data_valid0,  # output rd_data_valid0
+            o_rd_data_valid1=psramc_signals.rd_data_valid1,  # output rd_data_valid1
+            i_data_mask0=psramc_signals.data_mask0,  # input [3:0] data_mask0
+            i_data_mask1=psramc_signals.data_mask1,  # input [3:0] data_mask1
         )
 
         ##################################################################
@@ -181,50 +253,22 @@ class PlatformTop(Elaboratable):
         leds = [
             io.Buffer("o", platform.request("led", i, dir="-")) for i in range(NUM_LED)
         ]
-
         NUM_BUTTON = 2
         buttons = [
             io.Buffer("i", platform.request("button", i, dir="-"))
             for i in range(NUM_BUTTON)
         ]
         button_data = Cat([button.i for button in buttons])
-
         m.submodules += leds + buttons
-        top: Top = m.submodules.top
-
-        tx_busy_status = Signal(1)
-        rx_busy_status = Signal(1)
-        with m.If(top.tx_busy):
-            m.d.sync += tx_busy_status.eq(~tx_busy_status)
-        with m.If(top.rx_busy):
-            m.d.sync += rx_busy_status.eq(~rx_busy_status)
 
         # Status
         m.d.comb += [
-            leds[0].o.eq(top.ovf),
-            leds[1].o.eq(tx_busy_status),
-            leds[2].o.eq(rx_busy_status),
+            leds[0].o.eq(timer_toggle_sig),
+            leds[1].o.eq(~timer_toggle_sig),
+            leds[2].o.eq(Const(0)),
             leds[3].o.eq(Const(1)),
             leds[4].o.eq(button_data[0]),
             leds[5].o.eq(button_data[1]),
         ]
 
-        uart = platform.request("uart", 0, dir="-")
-        uart_tx = io.Buffer("o", uart.tx)
-        uart_rx = io.Buffer("i", uart.rx)
-        m.submodules += [uart_tx, uart_rx]
-        m.d.comb += [
-            uart_tx.o.eq(top.tx),
-            top.rx.eq(uart_rx.i),
-        ]
-
         return m
-
-    def elaborate(self, platform: Platform) -> Module:
-        # Platform specific elaboration
-        if isinstance(platform, ArtyA7_35Platform):
-            return self._elaborate_arty_a7_35(platform)
-        elif isinstance(platform, TangNano9kPlatform):
-            return self._elabolate_tangnano_9k(platform)
-        else:
-            logging.warning(f"Unsupported platform: {platform}")
