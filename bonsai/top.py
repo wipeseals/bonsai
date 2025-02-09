@@ -41,8 +41,14 @@ class Top(wiring.Component):
         self.uart_rx = UartRx(config=UartConfig.from_freq(clk_freq=periph_clk_freq))
 
         super().__init__(
-            {},
-            src_loc_at=src_loc_at,
+            {
+                "O_psram_cs_n": Out(1),
+                "O_psram_ck": Out(1),
+                "O_psram_ck_n": Out(1),
+                "IO_psram_dq": In(8),
+                "IO_psram_rwds": In(1),
+                "O_psram_reset_n": Out(1),
+            }
         )
 
     def elaborate(self, platform: Platform) -> Module:
@@ -185,27 +191,29 @@ class Top(wiring.Component):
         # for GN1NR-9C internal PSRAM
         # 規定の名前でTopに出しておくと合成されるらしい
         # output [1:0] O_psram_cs_n
-        O_psram_cs_n = IOPort(1, name="O_psram_cs_n")
-        m.submodules += IOBufferInstance(O_psram_cs_n, o=mem_cs_n, oe=Const(1))
+        m.d.O_psram_cs_n = O_psram_cs_n = IOBufferInstance(
+            self.O_psram_cs_n, o=mem_cs_n, oe=Const(1)
+        )
         # output [1:0] O_psram_ck
-        O_psram_ck = IOPort(1, name="O_psram_ck")
-        m.submodules += IOBufferInstance(O_psram_ck, o=mem_clk, oe=Const(1))
+        m.d.O_psram_ck = O_psram_ck = IOBufferInstance(
+            self.O_psram_ck, o=mem_clk, oe=Const(1)
+        )
         # output [1:0] O_psram_ck_n
-        O_psram_ck_n = IOPort(1, name="O_psram_ck_n")
-        m.submodules += IOBufferInstance(O_psram_ck_n, o=mem_clk_n, oe=Const(1))
+        m.d.O_psram_ck_n = O_psram_ck_n = IOBufferInstance(
+            self.O_psram_ck_n, o=mem_clk_n, oe=Const(1)
+        )
         # inout [15:0] IO_psram_dq
-        IO_psram_dq = IOPort(8, name="IO_psram_dq")
-        m.submodules += IOBufferInstance(
-            IO_psram_dq, i=mem_dq_i, o=mem_dq_o, oe=mem_dq_oe
+        m.d.IO_psram_dq = IO_psram_dq = IOBufferInstance(
+            self.IO_psram_dq, i=mem_dq_i, o=mem_dq_o, oe=mem_dq_oe
         )
         # inout [1:0] IO_psram_rwds
-        IO_psram_rwds = IOPort(1, name="IO_psram_rwds")
-        m.submodules += IOBufferInstance(
-            IO_psram_rwds, i=mem_rwds_i, o=mem_rwds_o, oe=mem_rwds_en
+        m.d.IO_psram_rwds = IO_psram_rwds = IOBufferInstance(
+            self.IO_psram_rwds, i=mem_rwds_i, o=mem_rwds_o, oe=mem_rwds_en
         )
         # output [1:0] O_psram_reset_n
-        O_psram_reset_n = IOPort(1, name="O_psram_reset_n")
-        m.submodules += IOBufferInstance(O_psram_reset_n, o=mem_reset_n, oe=Const(1))
+        m.d.O_psram_reset_n = O_psram_reset_n = IOBufferInstance(
+            self.O_psram_reset_n, o=mem_reset_n, oe=Const(1)
+        )
 
         ##################################################################
         # VGA
