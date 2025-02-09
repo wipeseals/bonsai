@@ -9,7 +9,7 @@ from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer
 from periph.uart import UartConfig, UartRx, UartTx
-from periph.video import VgaOut
+from periph.video import VgaConfig, VgaOut
 from top import PlatformTop, Top
 
 SUPPORT_DEVICES: Dict[str, Platform] = {
@@ -43,7 +43,7 @@ def build(args: argparse.Namespace) -> None:
             Timer(clk_freq=clk_freq, default_period_seconds=1.0),
             UartTx(config=UartConfig.from_freq(clk_freq=clk_freq)),
             UartRx(config=UartConfig.from_freq(clk_freq=clk_freq)),
-            VgaOut(VgaOut.preset_tangnano9k_800x480()),
+            VgaOut(VgaConfig.preset_tangnano9k_800x480()),
         ]
         for component in target_components:
             filename = f"{component.__class__.__name__}"

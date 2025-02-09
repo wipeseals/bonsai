@@ -28,17 +28,6 @@ from periph.uart import UartConfig, UartRx, UartTx
 from periph.video import VgaConfig, VgaOut
 
 
-class VideoPixelLayout(data.StructLayout):
-    def __init__(self, r_width: int, g_width: int, b_width: int):
-        super().__init__(
-            {
-                "r": unsigned(r_width),
-                "g": unsigned(g_width),
-                "b": unsigned(b_width),
-            }
-        )
-
-
 class Top(wiring.Component):
     def __init__(
         self,
@@ -124,7 +113,9 @@ class PlatformTop(Elaboratable):
             Path("eda/bonsai_tangnano9k/src/gowin_rpll/gowin_rpll.v").read_text(),
         )
 
+        # 132MHz
         o_clkout = Signal(1)
+        # 33.333MHz
         o_clkoutd = Signal(1)
         pll_lock = Signal(1)
 
