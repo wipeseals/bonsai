@@ -18,42 +18,15 @@ from amaranth import (
     unsigned,
 )
 from amaranth.build.plat import Platform
+from amaranth.hdl import IOBufferInstance, IOPort
 from amaranth.lib import cdc, data, enum, io, stream, wiring
 from amaranth.lib.cdc import ResetSynchronizer
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
-from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.timer import Timer, TimerMode
 from periph.uart import UartConfig, UartRx, UartTx
 from periph.video import VgaConfig, VgaOut
-
-
-class PsramCmd(enum.IntEnum):
-    READ = 0
-    WRITE = 1
-
-
-class PsramPortSignature(wiring.Signature):
-    def __init__(self, data_width: int, addr_width: int, burst_num: int, port_num: int):
-        self._data_width = data_width
-        self._data_mask_width = data_width // 8
-        self._addr_width = addr_width
-        self._burst_num = burst_num
-        self._port_num = port_num
-        assert 0 < port_num <= 2, "port_num must be 1 or 2"
-        members: Dict[str, Any] = {}
-        for port_idx in range(port_num):
-            members[f"addr{port_idx}"] = Out(data_width)
-            members[f"cmd{port_idx}"] = Out(PsramCmd)
-            members[f"cmd_en{port_idx}"] = Out(1)
-            members[f"rd_data{port_idx}"] = In(data_width)
-            members[f"rd_data_valid{port_idx}"] = In(1)
-            members[f"wr_data{port_idx}"] = Out(data_width)
-            members[f"data_mask{port_idx}"] = Out(self._data_mask_width)
-            members[f"init_calib{port_idx}"] = In(1)
-
-        super().__init__(members)
 
 
 class Top(wiring.Component):
@@ -68,15 +41,7 @@ class Top(wiring.Component):
         self.uart_rx = UartRx(config=UartConfig.from_freq(clk_freq=periph_clk_freq))
 
         super().__init__(
-            {
-                # for GN1NR-9C internal PSRAM
-                "O_psram_ck": Out(2),  # output [1:0] O_psram_ck
-                "O_psram_ck_n": Out(2),  # output [1:0] O_psram_ck_n
-                "IO_psram_rwds": In(2),  # inout [1:0] IO_psram_rwds
-                "O_psram_reset_n": Out(2),  # output [1:0] O_psram_reset_n
-                "IO_psram_dq": In(16),  # inout [15:0] IO_psram_dq
-                "O_psram_cs_n": Out(2),  # output [1:0] O_psram_cs_n
-            },
+            {},
             src_loc_at=src_loc_at,
         )
 
@@ -164,60 +129,83 @@ class Top(wiring.Component):
         ]
 
         ##################################################################
-        # PSRAM
-        platform.add_file(
-            "psram_memory_interface_hs_2ch.v",
-            Path(
-                r"eda/bonsai_tangnano9k/src/psram_memory_interface_hs_2ch/psram_memory_interface_hs_2ch.v"
-            ).read_text(),
-        )
+        # PSRAM W955D8MBYA6I
 
-        psram_clkout = Signal(1)
-        psramc_signals = PsramPortSignature(
-            data_width=32, addr_width=21, burst_num=4, port_num=2
-        ).create()
-        # test pattern
-        with m.If(psramc_signals.init_calib0):
-            m.d.core_sync += [
-                psramc_signals.addr0.eq(psramc_signals.addr0 + 1),
-                psramc_signals.cmd0.eq(PsramCmd.READ),
-                psramc_signals.cmd_en0.eq(1),
-            ]
+        # command
+        class Cmd(enum.Enum, shape=1):
+            WRITE = 0
+            READ = 1
 
-        m.submodules.psramc = psramc = Instance(
-            "PSRAM_Memory_Interface_HS_2CH_Top",
-            i_clk=ClockSignal("sync"),  # input clk
-            i_rst_n=Const(1),  # input rst_n
-            i_memory_clk=ClockSignal("core_sync"),  # input memory_clk
-            i_pll_lock=pll_lock,  # input pll_lock
-            # Topに出しておくと合成されるらしい...
-            o_O_psram_ck=self.O_psram_ck,  # output [1:0] O_psram_ck
-            o_O_psram_ck_n=self.O_psram_ck_n,  # output [1:0] O_psram_ck_n
-            i_IO_psram_rwds=self.IO_psram_rwds,  # inout [1:0] IO_psram_rwds
-            o_O_psram_reset_n=self.O_psram_reset_n,  # output [1:0] O_psram_reset_n
-            i_IO_psram_dq=self.IO_psram_dq,  # inout [15:0] IO_psram_dq
-            o_O_psram_cs_n=self.O_psram_cs_n,  # output [1:0] O_psram_cs_n
-            # 制御用Port0/1
-            o_init_calib0=psramc_signals.init_calib0,  # output init_calib0
-            o_init_calib1=psramc_signals.init_calib1,  # output init_calib1
-            # PSRAMC制御ロジック向け
-            o_clk_out=psram_clkout,  # output clk_out
-            # 制御用Port0/1
-            i_cmd0=psramc_signals.cmd0,  # input cmd0
-            i_cmd1=psramc_signals.cmd1,  # input cmd1
-            i_cmd_en0=psramc_signals.cmd_en0,  # input cmd_en0
-            i_cmd_en1=psramc_signals.cmd_en1,  # input cmd_en1
-            i_addr0=psramc_signals.addr0,  # input [20:0] addr0
-            i_addr1=psramc_signals.addr1,  # input [20:0] addr1
-            i_wr_data0=psramc_signals.wr_data0,  # input [31:0] wr_data0
-            i_wr_data1=psramc_signals.wr_data1,  # input [31:0] wr_data1
-            o_rd_data0=psramc_signals.rd_data0,  # output [31:0] rd_data0
-            o_rd_data1=psramc_signals.rd_data1,  # output [31:0] rd_data1
-            o_rd_data_valid0=psramc_signals.rd_data_valid0,  # output rd_data_valid0
-            o_rd_data_valid1=psramc_signals.rd_data_valid1,  # output rd_data_valid1
-            i_data_mask0=psramc_signals.data_mask0,  # input [3:0] data_mask0
-            i_data_mask1=psramc_signals.data_mask1,  # input [3:0] data_mask1
+        class AddrSpace(enum.Enum, shape=1):
+            MEMORY = 0
+            REGISTER = 1
+
+        class BurstType(enum.Enum, shape=1):
+            WRAP = 0
+            REGISTER = 1
+
+        class CommandAddressData(data.Struct):
+            def __init__(self):
+                super().__init__(
+                    {
+                        "cmd": Cmd,
+                        "addr_space": AddrSpace,
+                        "burst_type": BurstType,
+                        "row_addr": unsigned(13),
+                        "upper_col_addr": unsigned(6),
+                        "reserved": unsigned(13),
+                        "lower_col_addr": unsigned(3),
+                    }
+                )
+
+        # Chip Select#
+        mem_cs_n = Signal(1)
+        # Differential Clock
+        mem_clk = o_clkout
+        mem_clk_n = ~o_clkout
+        # Data Input/Output
+        mem_dq_o = Signal(8)
+        mem_dq_i = Signal(8)
+        mem_dq_oe = Signal(1)
+        # Read Write Data Strobe
+        mem_rwds_o = Signal(1)
+        mem_rwds_i = Signal(1)
+        mem_rwds_en = Signal(1)
+        # Hardware Reset#
+        mem_reset_n = Signal(1)
+
+        # mem_ca_data = Signal(CommandAddressData)
+        # mem_cmd_0 = mem_ca_data.bit_select(40, 8)
+        # mem_cmd_1 = mem_ca_data.bit_select(32, 8)
+        # mem_cmd_2 = mem_ca_data.bit_select(24, 8)
+        # mem_cmd_3 = mem_ca_data.bit_select(16, 8)
+        # mem_cmd_4 = mem_ca_data.bit_select(8, 8)
+        # mem_cmd_5 = mem_ca_data.bit_select(0, 8)
+
+        # for GN1NR-9C internal PSRAM
+        # 規定の名前でTopに出しておくと合成されるらしい
+        # output [1:0] O_psram_cs_n
+        O_psram_cs_n = IOPort(1, name="O_psram_cs_n")
+        m.submodules += IOBufferInstance(O_psram_cs_n, o=mem_cs_n, oe=Const(1))
+        # output [1:0] O_psram_ck
+        O_psram_ck = IOPort(1, name="O_psram_ck")
+        m.submodules += IOBufferInstance(O_psram_ck, o=mem_clk, oe=Const(1))
+        # output [1:0] O_psram_ck_n
+        O_psram_ck_n = IOPort(1, name="O_psram_ck_n")
+        m.submodules += IOBufferInstance(O_psram_ck_n, o=mem_clk_n, oe=Const(1))
+        # inout [15:0] IO_psram_dq
+        IO_psram_dq = IOPort(8, name="IO_psram_dq")
+        m.submodules += IOBufferInstance(
+            IO_psram_dq, i=mem_dq_i, o=mem_dq_o, oe=mem_dq_oe
         )
+        # inout [1:0] IO_psram_rwds
+        IO_psram_rwds = IOPort(1, name="IO_psram_rwds")
+        m.submodules += IOBufferInstance(
+            IO_psram_rwds, i=mem_rwds_i, o=mem_rwds_o, oe=mem_rwds_en
+        )
+        # output [1:0] O_psram_reset_n
+        O_psram_reset_n = IOPort(1, name="O_psram_reset_n")
+        m.submodules += IOBufferInstance(O_psram_reset_n, o=mem_reset_n, oe=Const(1))
 
         ##################################################################
         # VGA
