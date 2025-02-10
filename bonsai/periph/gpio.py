@@ -1,5 +1,3 @@
-from typing import Optional
-
 from amaranth import Module, Signal
 from amaranth.build.plat import Platform
 from amaranth.lib import enum, wiring
