@@ -27,6 +27,7 @@ from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from periph.gpio import Gpi, Gpo
+from periph.spi import SpiConfig, SpiMaster
 from periph.timer import Timer, TimerMode
 from periph.uart import UartConfig, UartRx, UartTx
 from periph.video import VgaConfig, VgaOut
@@ -123,6 +124,72 @@ class Top(Elaboratable):
             lcd_b_signals.eq(vga.pixel.b),
             lcd_backlight.o.eq(vga.backlight),
         ]
+
+        ##################################################################
+        # SDCard(SPI Master)
+
+        # min 74 clk + wait 1ms. 1あたり8bit転送待つので十分なはず
+        SDCARD_DUMMY_CLOCK_CYCLES = 500
+        SDCARD_CLOCK_CYCLE_WIDTH = ceil_log2(SDCARD_DUMMY_CLOCK_CYCLES)
+        # TX Payload = 6byte {2'b01, cmd[5:0], arg[31:0], crc[6:0], 1'b1}
+        SDCARD_SPI_TX_PAYLOAD_WORD = 6
+        # RX Payload = 1byte (R1) { 1'b0, param_err, addr_err, erase_seq_err, com_crc_err, illegal_cmd, erase_state, in_idle_state }
+        SDCARD_SPI_RX_R1_PAYLOAD_WORD = 1
+        # RX Payload = 5byte (R3/R7) { R1, operation_condition[31:0] }
+        SDCARD_SPI_RX_R3_PAYLOAD_WORD = 5
+
+        class SDCardCommand(enum.Enum):
+            CMD0_GO_IDLE_STATE = 0x40  # CRC need
+            CMD1_RESET_STATE = 0x48
+            CMD8_SEND_IF_COND = 0x48  # CRC need
+            CMD16_SET_BLOCKLEN = 0x50
+            CMD17_READ_SINGLE_BLOCK = 0x51
+            CMD24_WRITE_SINGLE_BLOCK = 0x58
+            CMD55_APP_CMD = 0x77
+            CMD58_READ_OCR = 0x7A
+            ACMD41_SEND_OP_COND = 0x69
+
+        # TODO: SCLK 400kHz以下にする
+
+        sdcard_cs = Signal(1, init=1)
+        m.submodules.sdcard = sdcard = platform.request("sdcard", 0, dir="-")
+        m.submodules.sdcard_spim = sdcard_spim = SpiMaster(SpiConfig(data_width=8))
+        m.d.comb += [
+            # External pins (SPI mode: DAT1=NC/DAT2=NC)
+            sdcard.dat3.eq(sdcard_cs),  # DAT3/CS
+            sdcard.cmd.eq(sdcard_spim.mosi),  # CMD/DMOSI
+            sdcard.clk.eq(sdcard_spim.sclk),  # CLK
+            sdcard.dat0.eq(sdcard_spim.miso),  # DAT0/MISO
+        ]
+        sdcard_counter = Signal(SDCARD_CLOCK_CYCLE_WIDTH, reset=0)
+        with m.FSM(init="DUMMY_CLK") as sd_fsm:
+            with m.State("DUMMY_CLK"):
+                with m.If(sdcard_spim.busy):
+                    # Wait for 8 dummy clocks
+                    m.d.sync += [
+                        sdcard_spim.trigger.eq(0),  # trig deassert
+                    ]
+                with m.Else():
+                    with m.If(sdcard_counter < SDCARD_DUMMY_CLOCK_CYCLES):
+                        m.d.sync += [
+                            # Dummy cyc中は CS=H, MOSI=H 維持
+                            sdcard_cs.eq(1),
+                            sdcard_spim.din.eq(0xFF),
+                            sdcard_spim.trigger.eq(1),
+                            # increment counter
+                            sdcard_counter.eq(sdcard_counter + 1),
+                        ]
+                    with m.Else():
+                        m.d.sync += [
+                            sdcard_counter.eq(0),
+                        ]
+                        m.next = "CMD0"
+            with m.State("CMD0"):
+                # TODO: CMD0 GO_IDLE_STATE -> CMD8_SEND_IF_COND -> ACMD41_SEND_OP_COND
+                # CMD58 READ OCR
+                # CMD16 SET_BLOCKLEN
+                # CMD17 READ_SINGLE_BLOCK
+                pass
 
         ##################################################################
         # GPIO (LED/Button)
