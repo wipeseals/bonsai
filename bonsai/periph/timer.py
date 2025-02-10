@@ -63,6 +63,14 @@ class Timer(wiring.Component):
         with m.If(self.cmp_count_wr):
             m.d.sync += cmp_count_reg.eq(self.cmp_count_in)
 
+        # triggerは立ち上がりエッジでカウント開始
+        trig_hist = Signal(2, reset=0)
+        m.d.sync += trig_hist.eq((trig_hist << 1) | self.trig)
+        tirg_assert = (trig_hist[0] == 1) & (trig_hist[1] == 0)
+        trig_restart_reg = Signal(1, reset=0)
+        with m.If(tirg_assert):
+            m.d.sync += trig_restart_reg.eq(1)
+
         # カウンター制御
         with m.If(~self.clr & self.en):
             with m.Switch(self.mode):
@@ -85,11 +93,12 @@ class Timer(wiring.Component):
                         ]
                 with m.Case(TimerMode.ONESHOT):
                     # 0/ovf時かつtrigが立っている場合にカウント開始。ovf立つまではカウント
-                    is_restart = ((counter_reg == 0) | self.ovf) & self.trig
+                    is_restart = ((counter_reg == 0) | self.ovf) & trig_restart_reg
                     with m.If(is_restart):
                         m.d.sync += [
                             counter_reg.eq(0),
                             self.ovf.eq(0),
+                            trig_restart_reg.eq(0),  # clear trigger
                         ]
                     with m.Elif(~self.ovf):
                         m.d.sync += [

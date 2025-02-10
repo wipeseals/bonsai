@@ -17,6 +17,8 @@ from amaranth import (
     Signal,
     unsigned,
 )
+from amaranth.build import Resource
+from amaranth.build.dsl import Attrs, Pins, Subsignal
 from amaranth.build.plat import Platform
 from amaranth.hdl import IOBufferInstance, IOPort
 from amaranth.lib import cdc, data, enum, io, stream, wiring
