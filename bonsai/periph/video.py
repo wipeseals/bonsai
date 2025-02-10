@@ -137,7 +137,8 @@ class VgaConfig:
 
 
 class VgaOut(wiring.Component):
-    def __init__(self, config: VgaConfig, domain: str = "video_sync", *, src_loc_at=0):
+    def __init__(self, config: VgaConfig, video_domain: str = "sync", *, src_loc_at=0):
+        self._video_domain = video_domain
         self.config = config
         super().__init__(
             {
@@ -212,16 +213,16 @@ class VgaOut(wiring.Component):
         with m.If(self.en):
             # Horizontal counter
             with m.If(h_counter < self.config.hdata_end - 1):
-                m.d.video_sync += h_counter.eq(h_counter + 1)
+                m.d[self._video_domain] += h_counter.eq(h_counter + 1)
             with m.Else():
-                m.d.video_sync += h_counter.eq(0)
+                m.d[self._video_domain] += h_counter.eq(0)
                 # Vertical counter
                 with m.If(v_counter < self.config.vdata_end - 1):
-                    m.d.video_sync += v_counter.eq(v_counter + 1)
+                    m.d[self._video_domain] += v_counter.eq(v_counter + 1)
                 with m.Else():
-                    m.d.video_sync += v_counter.eq(0)
+                    m.d[self._video_domain] += v_counter.eq(0)
         with m.Else():
             # Reset counter & sync invalid
-            m.d.video_sync += [h_counter.eq(0), v_counter.eq(0)]
+            m.d[self._video_domain] += [h_counter.eq(0), v_counter.eq(0)]
 
         return m
