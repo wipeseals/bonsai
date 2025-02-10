@@ -26,6 +26,7 @@ from amaranth.lib.cdc import ResetSynchronizer
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
+from periph.gpio import Gpi, Gpo
 from periph.timer import Timer, TimerMode
 from periph.uart import UartConfig, UartRx, UartTx
 from periph.video import VgaConfig, VgaOut
@@ -124,25 +125,44 @@ class Top(Elaboratable):
         ]
 
         ##################################################################
-        # LED/Button
-        leds = [
-            io.Buffer("o", platform.request("led", i, dir="-")) for i in range(NUM_LED)
-        ]
+        # GPIO (LED/Button)
+
+        m.submodules.button_in = button_in = Gpi(width=NUM_BUTTON)
         buttons = [
             io.Buffer("i", platform.request("button", i, dir="-"))
             for i in range(NUM_BUTTON)
         ]
-        button_data = Cat([button.i for button in buttons])
-        m.submodules += leds + buttons
-
-        # Status
+        m.submodules += buttons
         m.d.comb += [
-            leds[0].o.eq(timer_toggle_sig),
-            leds[1].o.eq(~timer_toggle_sig),
-            leds[2].o.eq(Const(0)),
-            leds[3].o.eq(Const(1)),
-            leds[4].o.eq(button_data[0]),
-            leds[5].o.eq(button_data[1]),
+            # enable
+            button_in.req.eq(1),
+            # Button -> GPI
+            button_in.pinin[0].eq(buttons[0].i),
+            button_in.pinin[1].eq(buttons[1].i),
+        ]
+
+        m.submodules.led_out = led_out = Gpo(width=NUM_LED, init_data=0x3F)
+        leds = [
+            io.Buffer("o", platform.request("led", i, dir="-")) for i in range(NUM_LED)
+        ]
+        m.submodules += leds
+        m.d.comb += [
+            # enable
+            led_out.req.eq(1),
+            # GPI -> GPO
+            led_out.datain[0].eq(timer_toggle_sig),
+            led_out.datain[1].eq(~timer_toggle_sig),
+            led_out.datain[2].eq(Const(0)),
+            led_out.datain[3].eq(Const(1)),
+            led_out.datain[4].eq(button_in.dataout[0]),
+            led_out.datain[5].eq(button_in.dataout[1]),
+            # GPO -> LED
+            leds[0].o.eq(led_out.pinout[0]),
+            leds[1].o.eq(led_out.pinout[1]),
+            leds[2].o.eq(led_out.pinout[2]),
+            leds[3].o.eq(led_out.pinout[3]),
+            leds[4].o.eq(led_out.pinout[4]),
+            leds[5].o.eq(led_out.pinout[5]),
         ]
 
         return m
