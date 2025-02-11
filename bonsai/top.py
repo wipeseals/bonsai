@@ -142,8 +142,12 @@ class Top(wiring.Component):
         ##################################################################
         # SDCard(SPI Master)
 
+        # SPI Modeの1トランザクションあたりのビット幅
+        SDCARD_SPI_DATA_WIDTH = 8
         # ひとまず最低速度
-        SDCARD_SCLK_FREQ = 400e3
+        SDCARD_SPI_SCLK_FREQ = 400e3
+        # N_cr (Command+Argument+CRC)送信後、応答待ちのbyte数 (可変)
+        SDCARD_SPI_RX_PAYLOAD_MAX_WORD = 8
         # min 74 clk + wait 1ms. 1あたり8bit転送待つので十分なはず
         SDCARD_DUMMY_CLOCK_CYCLES = 500
         SDCARD_CLOCK_CYCLE_WIDTH = ceil_log2(SDCARD_DUMMY_CLOCK_CYCLES)
@@ -165,6 +169,7 @@ class Top(wiring.Component):
             CMD58_READ_OCR = 0x7A
             ACMD41_SEND_OP_COND = 0x69
 
+        # SD Card pin resouces
         sdcard_cs = Signal(1, init=1)
         sdcard_pins = platform.request("sd_card_spi", 0, dir="-")
         m.submodules.sdcard_pin_buf_cs = sdcard_pin_buf_cs = io.Buffer(
@@ -179,49 +184,35 @@ class Top(wiring.Component):
         m.submodules.sdcard_pin_cipo = sdcard_pin_cipo = io.Buffer(
             "i", sdcard_pins.cipo
         )
+        # HDL Module & Stream
         m.submodules.sdcard_spim = sdcard_spim = SpiMaster(
             SpiConfig(
                 stream_clk_freq=DEFAULT_CLK_FREQ,
-                sclk_freq=SDCARD_SCLK_FREQ,
+                sclk_freq=SDCARD_SPI_SCLK_FREQ,
                 data_width=8,
             )
         )
+        m.submodules.sdcard_mosi_fifo = sdcard_mosi_fifo = SyncFIFO(
+            width=SDCARD_SPI_DATA_WIDTH, depth=SDCARD_SPI_TX_PAYLOAD_WORD
+        )
+        m.submodules.sdcard_miso_fifo = sdcard_miso_fifo = SyncFIFO(
+            width=SDCARD_SPI_DATA_WIDTH, depth=SDCARD_SPI_TX_PAYLOAD_WORD
+        )
+        sdcard_mosi_fifo_empty = sdcard_mosi_fifo.w_level == 0  # Idle (next action)
+        sdcard_miso_fifo_empty = sdcard_miso_fifo.r_level == 0  # need to wait
+        # Connection
         m.d.comb += [
             # External pins (SPI mode: DAT1=NC/DAT2=NC)
             sdcard_pin_buf_cs.o.eq(sdcard_cs),  # DAT3/CS
             sdcard_pin_buf_clk.o.eq(sdcard_spim.sclk),  # CLK
             sdcard_pin_buf_copi.o.eq(sdcard_spim.mosi),  # CMD/DMOSI
             sdcard_spim.miso.eq(sdcard_pin_cipo.i),  # DAT0/MISO
+            # Internal SPI Master
+            sdcard_spim.en.eq(1),
+            sdcard_spim.wr_cfg.eq(0),  # div_counter_th固定
         ]
-        sdcard_counter = Signal(SDCARD_CLOCK_CYCLE_WIDTH, reset=0)
-        with m.FSM(init="DUMMY_CLK") as sd_fsm:
-            with m.State("DUMMY_CLK"):
-                with m.If(sdcard_spim.busy):
-                    # Wait for 8 dummy clocks
-                    m.d.sync += [
-                        sdcard_spim.trigger.eq(0),  # trig deassert
-                    ]
-                with m.Else():
-                    with m.If(sdcard_counter < SDCARD_DUMMY_CLOCK_CYCLES):
-                        m.d.sync += [
-                            # Dummy cyc中は CS=H, MOSI=H 維持
-                            sdcard_cs.eq(1),
-                            sdcard_spim.din.eq(0xFF),
-                            sdcard_spim.trigger.eq(1),
-                            # increment counter
-                            sdcard_counter.eq(sdcard_counter + 1),
-                        ]
-                    with m.Else():
-                        m.d.sync += [
-                            sdcard_counter.eq(0),
-                        ]
-                        m.next = "CMD0"
-            with m.State("CMD0"):
-                # TODO: CMD0 GO_IDLE_STATE -> CMD8_SEND_IF_COND -> ACMD41_SEND_OP_COND
-                # CMD58 READ OCR
-                # CMD16 SET_BLOCKLEN
-                # CMD17 READ_SINGLE_BLOCK
-                pass
+        wiring.connect(sdcard_spim.stream_mosi, sdcard_mosi_fifo.r_stream)
+        wiring.connect(sdcard_miso_fifo.w_stream, sdcard_spim.stream_miso)
 
         ##################################################################
         # GPIO (LED/Button)
