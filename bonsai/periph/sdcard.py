@@ -1,18 +1,18 @@
+import cmd
 import math
 from dataclasses import dataclass
 from pickle import STOP
 
-from amaranth import Module, Mux, Signal, unsigned
+from amaranth import Cat, Const, Module, Mux, Signal, unsigned
 from amaranth.build.plat import Platform
+from amaranth.hdl import Assert
 from amaranth.lib import data, enum, stream, wiring
 from amaranth.lib.fifo import SyncFIFO
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from periph.spi import SpiConfig, SpiMaster
 
-# SD Cardのデータ幅
-SD_DATA_WIDTH: int = 8
-# SD Cardのアドレス(LBA)幅
+# SD Card Address Width
 SD_ADDR_WIDTH: int = 32
 
 
@@ -35,7 +35,7 @@ class SdCardConfig:
     # SdCardModule <-> SPI Master間のFIFO Depth
     data_stream_fifo_depth: int = 8
     # Command Frame後の待ちbyte最大
-    ncr_max_word: int = 8
+    ncr_max_word: int = 8 + 1
 
     @property
     def sclk_data_div_count(self) -> int:
@@ -72,7 +72,7 @@ class SdCardConfig:
             system_clk_freq=self.system_clk_freq,
             # 分周比がきつい遅い方に合わせておく
             sclk_freq=min(self.sclk_data_freq, self.sclk_reset_freq),
-            data_width=SD_DATA_WIDTH,
+            data_width=8,
         )
 
 
@@ -153,8 +153,8 @@ class SdCardMasterReqSignature(wiring.Signature):
         super().__init__(
             {
                 "cmd": Out(SdCardMasterCmd),
-                "addr": Out(unsigned(SD_ADDR_WIDTH)),
-                "len": Out(unsigned(SD_ADDR_WIDTH)),
+                "addr": Out(SD_ADDR_WIDTH),
+                "len": Out(SD_ADDR_WIDTH),
             }
         )
 
@@ -178,9 +178,10 @@ class SdCardMaster(wiring.Component):
                 "done": Out(1),
                 "wait_data_or_abort": Out(1),
                 "error": Out(1),
+                "latest_resp": Out(8),  # for check error
                 # datain/dataout stream
-                "wr_stream": In(stream.Signature(SD_DATA_WIDTH)),
-                "rd_stream": Out(stream.Signature(SD_DATA_WIDTH)),
+                "wr_stream": In(stream.Signature(8)),
+                "rd_stream": Out(stream.Signature(8)),
                 # for SD Card
                 "cs": Out(1),  # only support single device
                 "mosi": Out(1),
@@ -195,17 +196,22 @@ class SdCardMaster(wiring.Component):
 
         ##################################################################
         # control signals
-        setup_done = Signal(1, reset=0)
+        spi_cs = Signal(1, init=1)
+        setup_done = Signal(1, init=0)
+        setup_error = Signal(1, init=0)
+        done = Signal(1, init=0)
+        wait_data_or_abort = Signal(1, init=0)
+        error = Signal(1, init=0)
+        latest_resp = Signal(8, init=0xFF)
 
         ##################################################################
         # setup submodules
-        spi_cs = Signal(1, init=1)
         m.submodules.spim = spim = SpiMaster(self._spi_config)
         m.submodules.mosi_fifo = mosi_fifo = SyncFIFO(
-            width=SD_DATA_WIDTH, depth=self._config.data_stream_fifo_depth
+            width=8, depth=self._config.data_stream_fifo_depth
         )
         m.submodules.miso_fifo = miso_fifo = SyncFIFO(
-            width=SD_DATA_WIDTH, depth=self._config.data_stream_fifo_depth
+            width=8, depth=self._config.data_stream_fifo_depth
         )
         # SdCardMaster -> [[FIFO -> SPI Master]]
         wiring.connect(m, mosi_fifo.r_stream, spim.stream_mosi)
@@ -217,7 +223,7 @@ class SdCardMaster(wiring.Component):
             self.sclk.eq(spim.sclk),
             self.mosi.eq(spim.mosi),
             spim.miso.eq(self.miso),
-            # SPI Master
+            # SPI Master:  setup完了まではsclk低速(for dummycyc)
             spim.en.eq(1),
             spim.wr_cfg.eq(1),
             spim.cfg_div_counter_th.eq(
@@ -227,6 +233,113 @@ class SdCardMaster(wiring.Component):
                     self._config.sclk_reset_div_count,
                 )
             ),
+            # Internal Status
+            self.setup_done.eq(setup_done),
+            self.setup_error.eq(setup_error),
+            self.idle.eq(spi_cs),
+            self.busy.eq(~spi_cs),
+            self.done.eq(done),
+            self.wait_data_or_abort.eq(wait_data_or_abort),
+            self.error.eq(error),
+            self.latest_resp.eq(latest_resp),
         ]
+
+        ##################################################################
+        # Dummy Cycle (DC) Driver
+        req_dc = Signal(1, reset=0)
+        done_dc = Signal(1, reset=0)
+        counter_dc = Signal(SD_ADDR_WIDTH, reset=0)
+        # req_dcがなければ完全無効とし、別driverがfifo操作できるようにする
+        # 完了時に自発クリアされる
+        with m.If(req_dc):
+            with m.FSM(init="IDLE") as fsm:
+                with m.State("IDLE"):
+                    # Initial State
+                    m.d.sync += [
+                        # FSM control signal
+                        # (同一domain上位ブロックからの制御待ち)
+                        # counter: reset
+                        counter_dc.eq(0),
+                        # cs: deassert
+                        spi_cs.eq(1),
+                        # tx: disable
+                        mosi_fifo.w_en.eq(0),
+                        mosi_fifo.w_data.eq(0xFF),
+                        # rx: disable
+                        miso_fifo.r_en.eq(0),
+                    ]
+                    # 要求が来てかつ完了レジスタクリアされていなければ開始
+                    with m.If(req_dc & ~done_dc):
+                        m.next = "START"
+                with m.State("START"):
+                    # 0xffを送信し続け、全データを読み捨て
+                    m.d.sync += [
+                        # counter: reset
+                        counter_dc.eq(0),
+                        # cs: deassert (dummy cycではassertしない)
+                        spi_cs.eq(1),
+                        # tx: send 0xFF
+                        mosi_fifo.w_en.eq(1),
+                        mosi_fifo.w_data.eq(0xFF),
+                        # rx: read and discard
+                        miso_fifo.r_en.eq(1),
+                    ]
+                    m.next = "XFER"
+                with m.State("XFER"):
+                    # tx: 規定回数送る
+                    with m.If(
+                        mosi_fifo.w_rdy
+                        & (counter_dc < self._config.setup_dummy_bytes - 1)
+                    ):
+                        m.d.sync += [
+                            counter_dc.eq(counter_dc + 1),
+                        ]
+
+                    # rx: Dummy Send & Flushチェック
+                    #  - 送りきった & TX FIFOが空 & spimがbusyでない & RX FIFOが空
+                    is_sending = counter_dc < self._config.setup_dummy_bytes - 1
+                    is_busy_mosi_fifo = mosi_fifo.w_level > 0
+                    is_busy_spim = spim.busy
+                    is_busy_miso_fifo = miso_fifo.r_level > 0
+                    with m.If(
+                        ~is_sending
+                        & ~is_busy_mosi_fifo
+                        & ~is_busy_spim
+                        & ~is_busy_miso_fifo
+                    ):
+                        # 完了レジスタを立てて終わり
+                        m.d.sync += [
+                            # FSM control signal
+                            req_dc.eq(0),  # 次cycではFSMごと無効化される
+                            done_dc.eq(1),
+                            # counter: reset
+                            counter_dc.eq(0),
+                            # cs: deassert
+                            spi_cs.eq(1),
+                            # tx: disable
+                            mosi_fifo.w_en.eq(0),
+                            mosi_fifo.w_data.eq(0xFF),
+                            # rx: disable
+                            miso_fifo.r_en.eq(0),
+                        ]
+                        m.next = "IDLE"
+
+        ##################################################################
+        # Command Transfer Logic
+
+        # MOSIへのデータ転送をCommand Frame単位でまとめて行う向け
+        # - Command Frame: [CMD, ARG, CRC]
+        CMD_FRAME_BYTES = 6
+        cmd_data = Signal(6, init=0)
+        cmd_args = Signal(4 * 8, init=0)
+        cmd_crc = Signal(7, init=0)
+        cmd_frame_data = Cat(
+            Const(0b01, shape=2), cmd_data, cmd_args, cmd_crc, Const(1, shape=1)
+        )
+        assert cmd_frame_data.shape().width == 8 * CMD_FRAME_BYTES, (
+            "Invalid CMD_FRAME_BYTES"
+        )
+        cmd_tx_counter = Signal(ceil_log2(8), init=0)
+        tx_data_cmd_frame = cmd_frame_data.word_select(cmd_tx_counter, width=8)
 
         return m
