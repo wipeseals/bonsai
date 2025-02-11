@@ -1,10 +1,12 @@
 import os
+from pathlib import Path
 import sys
 from dataclasses import dataclass
 from functools import reduce
 from typing import Callable, Optional
 
-from amaranth.back import verilog
+from amaranth.back import cxxrtl, verilog
+from amaranth.build.plat import Platform
 from amaranth.lib import wiring
 from amaranth.lib.wiring import Component
 from amaranth.sim import Period, Simulator
@@ -75,15 +77,22 @@ def generate_dist_file_path(file_name: str, dist_file_dir: str = "dist") -> str:
     return f"{dist_file_dir}/{file_name}"
 
 
-def export_verilog_file(
-    component: Component, name: str, dist_file_dir: str = "dist"
+def export(
+    component: Component,
+    name: str,
+    dist_file_dir: str = "dist",
+    platform: Optional[Platform] = None,
 ) -> None:
     """
     Convert a wiring.Component to a Verilog file
     """
-    filepath = generate_dist_file_path(f"{name}.v")
-    with open(filepath, "w") as f:
-        f.write(verilog.convert(component))
+    verilog_path = generate_dist_file_path(f"{name}.v", dist_file_dir=dist_file_dir)
+    cxx_path = generate_dist_file_path(f"{name}.cpp", dist_file_dir=dist_file_dir)
+
+    Path(verilog_path).write_text(
+        verilog.convert(component, name=name, platform=platform)
+    )
+    Path(cxx_path).write_text(cxxrtl.convert(component, name=name, platform=platform))
 
 
 @dataclass

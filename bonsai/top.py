@@ -33,7 +33,20 @@ from periph.uart import UartConfig, UartRx, UartTx
 from periph.video import VgaConfig, VgaOut
 
 
-class Top(Elaboratable):
+class Top(wiring.Component):
+    def __init__(self):
+        super().__init__(
+            {
+                # magic wire names for Internal PSRAM
+                "O_psram_cs_n": Out(2),
+                "O_psram_ck": Out(2),
+                "O_psram_ck_n": Out(2),
+                "IO_psram_dq": In(16),
+                "IO_psram_rwds": In(2),
+                "O_psram_reset_n": Out(2),
+            }
+        )
+
     def elaborate(self, platform: Platform) -> Module:
         # TODO: other platform specific logic
         assert isinstance(platform, TangNano9kPlatform), (
@@ -152,7 +165,7 @@ class Top(Elaboratable):
         # TODO: SCLK 400kHz以下にする
 
         sdcard_cs = Signal(1, init=1)
-        m.submodules.sdcard = sdcard = platform.request("sdcard", 0, dir="-")
+        m.submodules.sdcard = sdcard = platform.request("sd_card_spi", 0, dir="-")
         m.submodules.sdcard_spim = sdcard_spim = SpiMaster(SpiConfig(data_width=8))
         m.d.comb += [
             # External pins (SPI mode: DAT1=NC/DAT2=NC)

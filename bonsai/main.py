@@ -37,7 +37,10 @@ def build(args: argparse.Namespace) -> None:
 
         logging.info("Generating Verilog files for all components")
 
-        clk_freq = 100e6
+        # TODO: tangnano9k 以外
+        target_platform = TangNano9kPlatform()
+        clk_freq = 27e6
+
         target_components: List[Elaboratable] = [
             Top(),
             Timer(clk_freq=clk_freq, default_period_seconds=1.0),
@@ -47,10 +50,11 @@ def build(args: argparse.Namespace) -> None:
         ]
         for component in target_components:
             filename = f"{component.__class__.__name__}"
-            logging.info(f"Generating {filename}.v")
-            util.export_verilog_file(
+            logging.info(f"Generating {filename}")
+            util.export(
                 component=component,
                 name=filename,
+                platform=target_platform,
             )
 
 
