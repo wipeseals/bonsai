@@ -38,11 +38,10 @@ def build(args: argparse.Namespace) -> None:
         logging.info("Generating Verilog files for all components")
 
         # TODO: tangnano9k 以外
-        target_platform = TangNano9kPlatform()
+        target_platform = None
         clk_freq = 27e6
 
         target_components: List[Elaboratable] = [
-            Top(),
             Timer(clk_freq=clk_freq, default_period_seconds=1.0),
             UartTx(config=UartConfig.from_freq(clk_freq=clk_freq)),
             UartRx(config=UartConfig.from_freq(clk_freq=clk_freq)),

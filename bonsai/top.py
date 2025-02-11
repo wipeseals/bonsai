@@ -85,13 +85,13 @@ class Top(wiring.Component):
         m.submodules.uart_rx = uart_rx = UartRx(
             config=UartConfig.from_freq(clk_freq=DEFAULT_CLK_FREQ)
         )
-        uart = platform.request("uart", 0, dir="-")
-        m.submodules.uart_tx_pin = uart_tx_pin = io.Buffer("o", uart.tx)
-        m.submodules.uart_rx_pin = uart_rx_pin = io.Buffer("i", uart.rx)
+        uart_pins = platform.request("uart", 0, dir="-")
+        m.submodules.uart_pin_tx = uart_pin_buf_tx = io.Buffer("o", uart_pins.tx)
+        m.submodules.uart_pin_rx = uart_pin_buf_rx = io.Buffer("i", uart_pins.rx)
         m.d.comb += [
             # External pins
-            uart_tx_pin.o.eq(uart_tx.tx),
-            uart_rx.rx.eq(uart_rx_pin.i),
+            uart_pin_buf_tx.o.eq(uart_tx.tx),
+            uart_rx.rx.eq(uart_pin_buf_rx.i),
             # Internal RX
             uart_rx.en.eq(1),
             # Internal TX
@@ -108,34 +108,34 @@ class Top(wiring.Component):
         # https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/204/104990583_Web.pdf
         vga_config = VgaConfig.preset_tangnano9k_800x480()
         m.submodules.vga = vga = VgaOut(config=vga_config)
-        lcd = platform.request("lcd", 0, dir="-")
-        m.submodules.lcd_clk = lcd_clk = io.Buffer("o", lcd.clk)
-        m.submodules.lcd_hs = lcd_hs = io.Buffer("o", lcd.hs)
-        m.submodules.lcd_vs = lcd_vs = io.Buffer("o", lcd.vs)
-        m.submodules.lcd_de = lcd_de = io.Buffer("o", lcd.de)
-        m.submodules.lcd_backlight = lcd_backlight = io.Buffer(
+        lcd_pins = platform.request("lcd", 0, dir="-")
+        m.submodules.lcd_pin_buf_clk = lcd_pin_buf_clk = io.Buffer("o", lcd_pins.clk)
+        m.submodules.lcd_pin_buf_hs = lcd_pin_buf_hs = io.Buffer("o", lcd_pins.hs)
+        m.submodules.lcd_pin_buf_vs = lcd_pin_buf_vs = io.Buffer("o", lcd_pins.vs)
+        m.submodules.lcd_pin_buf_de = lcd_pin_buf_de = io.Buffer("o", lcd_pins.de)
+        m.submodules.lcd_pin_buf_backlight = lcd_pin_buf_backlight = io.Buffer(
             "o", platform.request("lcd_backlight", 0, dir="-")
         )
 
-        lcd_r = [io.Buffer("o", r) for r in lcd.r]
-        lcd_g = [io.Buffer("o", g) for g in lcd.g]
-        lcd_b = [io.Buffer("o", b) for b in lcd.b]
-        m.submodules += lcd_r
-        m.submodules += lcd_g
-        m.submodules += lcd_b
-        lcd_r_signals = Cat([r.o for r in lcd_r])
-        lcd_g_signals = Cat([g.o for g in lcd_g])
-        lcd_b_signals = Cat([b.o for b in lcd_b])
+        lcd_pin_r = [io.Buffer("o", r) for r in lcd_pins.r]
+        lcd_pin_g = [io.Buffer("o", g) for g in lcd_pins.g]
+        lcd_pin_b = [io.Buffer("o", b) for b in lcd_pins.b]
+        m.submodules += lcd_pin_r
+        m.submodules += lcd_pin_g
+        m.submodules += lcd_pin_b
+        lcd_r_signals = Cat([r.o for r in lcd_pin_r])
+        lcd_g_signals = Cat([g.o for g in lcd_pin_g])
+        lcd_b_signals = Cat([b.o for b in lcd_pin_b])
         m.d.comb += [
             vga.en.eq(Const(1)),
-            lcd_clk.o.eq(ClockSignal("sync")),
-            lcd_hs.o.eq(vga.hsync),
-            lcd_vs.o.eq(vga.vsync),
-            lcd_de.o.eq(vga.de),
+            lcd_pin_buf_clk.o.eq(ClockSignal("sync")),
+            lcd_pin_buf_hs.o.eq(vga.hsync),
+            lcd_pin_buf_vs.o.eq(vga.vsync),
+            lcd_pin_buf_de.o.eq(vga.de),
             lcd_r_signals.eq(vga.pixel.r),
             lcd_g_signals.eq(vga.pixel.g),
             lcd_b_signals.eq(vga.pixel.b),
-            lcd_backlight.o.eq(vga.backlight),
+            lcd_pin_buf_backlight.o.eq(vga.backlight),
         ]
 
         ##################################################################
@@ -165,14 +165,26 @@ class Top(wiring.Component):
         # TODO: SCLK 400kHz以下にする
 
         sdcard_cs = Signal(1, init=1)
-        m.submodules.sdcard = sdcard = platform.request("sd_card_spi", 0, dir="-")
+        sdcard_pins = platform.request("sd_card_spi", 0, dir="-")
+        m.submodules.sdcard_pin_buf_cs = sdcard_pin_buf_cs = io.Buffer(
+            "o", sdcard_pins.cs
+        )
+        m.submodules.sdcard_pin_buf_clk = sdcard_pin_buf_clk = io.Buffer(
+            "o", sdcard_pins.clk
+        )
+        m.submodules.sdcard_pin_buf_copi = sdcard_pin_buf_copi = io.Buffer(
+            "o", sdcard_pins.copi
+        )
+        m.submodules.sdcard_pin_cipo = sdcard_pin_cipo = io.Buffer(
+            "i", sdcard_pins.cipo
+        )
         m.submodules.sdcard_spim = sdcard_spim = SpiMaster(SpiConfig(data_width=8))
         m.d.comb += [
             # External pins (SPI mode: DAT1=NC/DAT2=NC)
-            sdcard.dat3.eq(sdcard_cs),  # DAT3/CS
-            sdcard.cmd.eq(sdcard_spim.mosi),  # CMD/DMOSI
-            sdcard.clk.eq(sdcard_spim.sclk),  # CLK
-            sdcard.dat0.eq(sdcard_spim.miso),  # DAT0/MISO
+            sdcard_pin_buf_cs.o.eq(sdcard_cs),  # DAT3/CS
+            sdcard_pin_buf_clk.o.eq(sdcard_spim.sclk),  # CLK
+            sdcard_pin_buf_copi.o.eq(sdcard_spim.mosi),  # CMD/DMOSI
+            sdcard_spim.miso.eq(sdcard_pin_cipo.i),  # DAT0/MISO
         ]
         sdcard_counter = Signal(SDCARD_CLOCK_CYCLE_WIDTH, reset=0)
         with m.FSM(init="DUMMY_CLK") as sd_fsm:

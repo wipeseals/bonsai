@@ -1,3 +1,4 @@
+import copy
 import os
 from pathlib import Path
 import sys
@@ -89,10 +90,13 @@ def export(
     verilog_path = generate_dist_file_path(f"{name}.v", dist_file_dir=dist_file_dir)
     cxx_path = generate_dist_file_path(f"{name}.cpp", dist_file_dir=dist_file_dir)
 
+    # platform は一度requestしたresouceを再取得できないようにしているのでcloneして実行
     Path(verilog_path).write_text(
-        verilog.convert(component, name=name, platform=platform)
+        verilog.convert(component, name=name, platform=copy.deepcopy(platform))
     )
-    Path(cxx_path).write_text(cxxrtl.convert(component, name=name, platform=platform))
+    Path(cxx_path).write_text(
+        cxxrtl.convert(component, name=name, platform=copy.deepcopy(platform))
+    )
 
 
 @dataclass
