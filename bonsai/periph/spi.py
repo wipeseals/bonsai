@@ -11,14 +11,42 @@ from amaranth.utils import ceil_log2
 class SpiConfig:
     """
     SPI Configuration
-    当初 ClockPhase, ClockPolarity, ClockDivider, DataOrderの設定を作っていたが、実際使わなそうなので簡略化
+    当初 ClockPhase, ClockPolarity, DataOrderの設定を作っていたが、実際使わなそうなので簡略化
     """
 
+    # Stream Clock
+    stream_clk_freq: float
+    # Transfer Clock
+    sclk_freq: float
     # Data Width
     data_width: int = 8
 
     def __post_init__(self):
+        assert self.stream_clk_freq > 0, "stream_clk_freq must be positive"
+        assert self.sclk_freq > 0, "sclk_freq must be positive"
+        assert (self.stream_clk_freq // 2) >= self.sclk_freq, (
+            "sclk_freq must be less than or equal to stream_clk_freq/2"
+        )
         assert self.data_width > 0, "data_width must be positive"
+
+    @property
+    def sclk_clock_div_count(self) -> int:
+        """
+        SCLKのクロック分周比
+        stream_clk_freq / 2 にしているのは、stream_clkのSDR駆動なのでイベント自体が更に1/2になるため
+        """
+        n = int(self.sclk_freq // (self.stream_clk_freq // 2))
+        assert n > 0, "sclk_clock_div_ratio must be positive"
+        return n
+
+    @property
+    def sclk_clock_div_count_width(self) -> int:
+        """
+        sclk_clock_div_countに必要なビット数
+        """
+        n = int(ceil_log2(self.sclk_clock_div_count))
+        assert n > 0, "sclk_clock_div_count_width must be positive"
+        return n
 
     @property
     def transfer_counter_width(self) -> int:
@@ -41,12 +69,16 @@ class SpiMaster(wiring.Component):
         self._config = config
         super().__init__(
             {
-                # for internal
+                # internal control
                 "en": In(1),
-                "data_mosi": In(stream.Signature(config.data_width)),
-                "data_miso": Out(stream.Signature(config.data_width)),
                 "busy": Out(1),  # status
                 "done": Out(1),  # status
+                # internal config
+                "wr_cfg": In(1),  # config update
+                "cfg_div_counter_th": In(config.sclk_clock_div_count_width),
+                # internal stream
+                "stream_mosi": In(stream.Signature(config.data_width)),
+                "stream_miso": Out(stream.Signature(config.data_width)),
                 # for external
                 "sclk": Out(1),
                 "mosi": Out(1),
@@ -58,12 +90,30 @@ class SpiMaster(wiring.Component):
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
 
-        # SCLK
+        # Clock Divider
+        div_counter = Signal(self._config.sclk_clock_div_count_width, init=0)
+        div_counter_th = Signal(
+            self._config.sclk_clock_div_count_width,
+            init=self._config.sclk_clock_div_count - 1,
+        )
+        div_counter_event = Signal(1, init=0)
+        with m.If(div_counter < div_counter_th):
+            m.d.sync += [
+                div_counter.eq(div_counter + 1),
+                div_counter_event.eq(0),
+            ]
+        with m.Else():
+            m.d.sync += [
+                div_counter.eq(0),
+                div_counter_event.eq(1),
+            ]
+
+        # SCLK. 分周のために div_counter_event で駆動。rise/fallはFSM中でのイベント制御用
         sclk_is_rising = Signal(1, init=0)
         sclk_is_falling = Signal(1, init=0)
 
         sclk_en = Signal(1, init=0)
-        with m.If(sclk_en):
+        with m.If(sclk_en & div_counter_event):
             m.d.sync += [
                 # Edge detect
                 sclk_is_rising.eq(self.sclk == 0),  # (Current)Low -> High
@@ -105,41 +155,41 @@ class SpiMaster(wiring.Component):
                 ]
 
                 # 前回送信したデータの受取確認
-                with m.If(self.data_miso.valid):
-                    with m.If(self.data_miso.ready):
+                with m.If(self.stream_miso.valid):
+                    with m.If(self.stream_miso.ready):
                         # Data captureされるので無効データ化
                         m.d.sync += [
                             # Stream In: Allow
-                            self.data_mosi.ready.eq(1),
+                            self.stream_mosi.ready.eq(1),
                             # Stream Out: Valid->Invalid
-                            self.data_miso.valid.eq(0),
+                            self.stream_miso.valid.eq(0),
                         ]
                     with m.Else():
                         # 受け取れていないので待機
                         m.d.sync += [
                             # Stream In: Keep Deny
-                            self.data_mosi.ready.eq(0),
+                            self.stream_mosi.ready.eq(0),
                             # Stream Out: keep Valid
-                            self.data_miso.valid.eq(1),
+                            self.stream_miso.valid.eq(1),
                         ]
                 with m.Else():
                     # 受取済 or 1度も送信していない
                     m.d.sync += [
                         # Stream In: Allow
-                        self.data_mosi.ready.eq(1),
+                        self.stream_mosi.ready.eq(1),
                         # Stream Out: Invalid
-                        self.data_miso.valid.eq(0),
+                        self.stream_miso.valid.eq(0),
                     ]
 
                 # enable かつ mosi のデータ転送タイミング(ready/valid)が合致したら送信開始
-                with m.If(self.en & self.data_mosi.valid & self.data_mosi.ready):
+                with m.If(self.en & self.stream_mosi.valid & self.stream_mosi.ready):
                     m.d.sync += [
                         # Stream In: Captured
-                        self.data_mosi.ready.eq(0),
+                        self.stream_mosi.ready.eq(0),
                         # Stream Out: keep Disable
-                        self.data_miso.valid.eq(0),
-                        # Data Reg: Capture data_mosi -> mosi_reg
-                        mosi_reg.eq(self.data_mosi.payload),  # MSBが次cycそのまま出力
+                        self.stream_miso.valid.eq(0),
+                        # Data Reg: Capture stream_mosi -> mosi_reg
+                        mosi_reg.eq(self.stream_mosi.payload),  # MSBが次cycそのまま出力
                         miso_reg.eq(0),
                         # Transfer Counter: Initial state + Enable SCLK
                         transfer_counter.eq(0),
@@ -178,15 +228,20 @@ class SpiMaster(wiring.Component):
                 # データ出力+フラグ更新
                 m.d.sync += [
                     # Stream In: Keep Deny
-                    self.data_mosi.ready.eq(0),
+                    self.stream_mosi.ready.eq(0),
                     # Stream Out: Valid
-                    self.data_miso.valid.eq(1),
-                    # Data Reg: Capture miso_reg -> data_miso
-                    self.data_miso.eq(miso_reg),
+                    self.stream_miso.valid.eq(1),
+                    # Data Reg: Capture miso_reg -> stream_miso
+                    self.stream_miso.eq(miso_reg),
                     # Flags: Done
                     self.busy.eq(0),
                     self.done.eq(1),
                 ]
                 m.next = "IDLE"
 
+        # config
+        with m.If(self.wr_cfg):
+            m.d.sync += [
+                div_counter_th.eq(self.cfg_div_counter_th),
+            ]
         return m

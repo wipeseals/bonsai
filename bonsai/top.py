@@ -23,6 +23,7 @@ from amaranth.build.plat import Platform
 from amaranth.hdl import IOBufferInstance, IOPort
 from amaranth.lib import cdc, data, enum, io, stream, wiring
 from amaranth.lib.cdc import ResetSynchronizer
+from amaranth.lib.fifo import SyncFIFO
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
@@ -141,6 +142,8 @@ class Top(wiring.Component):
         ##################################################################
         # SDCard(SPI Master)
 
+        # ひとまず最低速度
+        SDCARD_SCLK_FREQ = 400e3
         # min 74 clk + wait 1ms. 1あたり8bit転送待つので十分なはず
         SDCARD_DUMMY_CLOCK_CYCLES = 500
         SDCARD_CLOCK_CYCLE_WIDTH = ceil_log2(SDCARD_DUMMY_CLOCK_CYCLES)
@@ -162,8 +165,6 @@ class Top(wiring.Component):
             CMD58_READ_OCR = 0x7A
             ACMD41_SEND_OP_COND = 0x69
 
-        # TODO: SCLK 400kHz以下にする
-
         sdcard_cs = Signal(1, init=1)
         sdcard_pins = platform.request("sd_card_spi", 0, dir="-")
         m.submodules.sdcard_pin_buf_cs = sdcard_pin_buf_cs = io.Buffer(
@@ -178,7 +179,13 @@ class Top(wiring.Component):
         m.submodules.sdcard_pin_cipo = sdcard_pin_cipo = io.Buffer(
             "i", sdcard_pins.cipo
         )
-        m.submodules.sdcard_spim = sdcard_spim = SpiMaster(SpiConfig(data_width=8))
+        m.submodules.sdcard_spim = sdcard_spim = SpiMaster(
+            SpiConfig(
+                stream_clk_freq=DEFAULT_CLK_FREQ,
+                sclk_freq=SDCARD_SCLK_FREQ,
+                data_width=8,
+            )
+        )
         m.d.comb += [
             # External pins (SPI mode: DAT1=NC/DAT2=NC)
             sdcard_pin_buf_cs.o.eq(sdcard_cs),  # DAT3/CS
