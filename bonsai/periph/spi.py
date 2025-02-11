@@ -182,6 +182,7 @@ class SpiMaster(wiring.Component):
                     ]
 
                 # enable かつ mosi のデータ転送タイミング(ready/valid)が合致したら送信開始
+                # enable はここでしか見ない。転送途中でのstallはStreamのvalid/ready下げ忘れ事故がおきる
                 with m.If(self.en & self.stream_mosi.valid & self.stream_mosi.ready):
                     m.d.sync += [
                         # Stream In: Captured
