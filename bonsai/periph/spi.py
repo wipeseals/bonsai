@@ -42,7 +42,9 @@ class SpiConfig:
         )
 
         n = int((system_clk_freq // 2) // sclk_freq)
-        assert n > 0, "sclk_clock_div_ratio must be positive"
+        assert n > 0, (
+            f"sclk_clock_div_ratio must be positive. {n=} {system_clk_freq=} {sclk_freq=}"
+        )
         return n
 
     @staticmethod
@@ -50,10 +52,12 @@ class SpiConfig:
         """
         sclk_clock_div_countに必要なビット数
         """
-        n = int(
-            ceil_log2(SpiConfig.sclk_div_count_from_freq(system_clk_freq, sclk_freq))
+        div_count: int = SpiConfig.sclk_div_count_from_freq(system_clk_freq, sclk_freq)
+        # div_count=1の場合にカウンタビット幅が0扱いになる。性格にはlog2(divCount) + 1がカウントできる必要がある
+        n = int(ceil_log2(div_count)) + 1
+        assert n > 0, (
+            f"sclk_clock_div_count_width must be positive. {n=} {div_count=} {system_clk_freq=} {sclk_freq=}"
         )
-        assert n > 0, "sclk_clock_div_count_width must be positive"
         return n
 
     @property
