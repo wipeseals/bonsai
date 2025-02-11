@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from amaranth import Module, Signal
 from amaranth.build.plat import Platform
-from amaranth.lib import wiring
+from amaranth.lib import wiring, stream
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 
@@ -42,11 +42,11 @@ class SpiMaster(wiring.Component):
         super().__init__(
             {
                 # for internal
-                "din": In(config.data_width),
-                "dout": Out(config.data_width),
-                "trigger": In(1),
-                "busy": Out(1),
-                "done": Out(1),
+                "en": In(1),
+                "din": In(stream.Signature(config.data_width)),
+                "dout": Out(stream.Signature(config.data_width)),
+                "busy": Out(1),  # status
+                "done": Out(1),  # status
                 # for external
                 "sclk": Out(1),
                 "mosi": Out(1),
@@ -57,11 +57,6 @@ class SpiMaster(wiring.Component):
 
     def elaborate(self, platform: Platform) -> Module:
         m = Module()
-
-        # trigger edge
-        trigger_edge = Signal(2, reset=0)
-        m.d.sync += trigger_edge.eq((trigger_edge << 1) | self.trigger)
-        trigger_rising = (trigger_edge[0] == 0) & (trigger_edge[1] == 1)
 
         # SCLK (SYSCLK/2)
         sclk_cpol0 = Signal(1, init=0)
@@ -103,11 +98,15 @@ class SpiMaster(wiring.Component):
                     self.done.eq(0),
                 ]
 
-                # trigger信号のエッジで処理開始
-                with m.If(trigger_rising):
+                # enable & din=valid で開始
+                with m.If(self.en & self.din.valid):
                     m.d.sync += [
+                        # Stream In: Capture
+                        self.din.ready.eq(1),
+                        # Stream Out: N/C
+                        self.dout.valid.eq(0),
                         # Data Reg: Capture din -> mosi_reg
-                        mosi_reg.eq(self.din),
+                        mosi_reg.eq(self.din.payload),
                         miso_reg.eq(0),
                         # Transfer Counter: Initial state + Enable SCLK
                         transfer_counter.eq(0),
