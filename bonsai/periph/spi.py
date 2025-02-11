@@ -15,38 +15,66 @@ class SpiConfig:
     """
 
     # Stream Clock
-    stream_clk_freq: float
+    system_clk_freq: float
     # Transfer Clock
     sclk_freq: float
     # Data Width
     data_width: int = 8
 
     def __post_init__(self):
-        assert self.stream_clk_freq > 0, "stream_clk_freq must be positive"
+        assert self.system_clk_freq > 0, "system_clk_freq must be positive"
         assert self.sclk_freq > 0, "sclk_freq must be positive"
-        assert (self.stream_clk_freq // 2) >= self.sclk_freq, (
-            "sclk_freq must be less than or equal to stream_clk_freq/2"
+        assert (self.system_clk_freq // 2) >= self.sclk_freq, (
+            "sclk_freq must be less than or equal to system_clk_freq/2"
         )
         assert self.data_width > 0, "data_width must be positive"
 
-    @property
-    def sclk_clock_div_count(self) -> int:
+    @staticmethod
+    def sclk_div_count_from_freq(system_clk_freq: float, sclk_freq: float) -> int:
         """
-        SCLKのクロック分周比
-        stream_clk_freq / 2 にしているのは、stream_clkのSDR駆動なのでイベント自体が更に1/2になるため
+        SCLKのクロック分周比を計算
+        system_clk_freq / 2 にしているのは、stream_clkのSDR駆動なのでイベント自体が更に1/2になるため
         """
-        n = int(self.sclk_freq // (self.stream_clk_freq // 2))
+        assert system_clk_freq > 0, "system_clk_freq must be positive"
+        assert sclk_freq > 0, "sclk_freq must be positive"
+        assert (system_clk_freq // 2) >= sclk_freq, (
+            "sclk_freq must be less than or equal to system_clk_freq/2"
+        )
+
+        n = int((system_clk_freq // 2) // sclk_freq)
         assert n > 0, "sclk_clock_div_ratio must be positive"
         return n
 
-    @property
-    def sclk_clock_div_count_width(self) -> int:
+    @staticmethod
+    def sclk_div_count_width_from_freq(system_clk_freq: float, sclk_freq: float) -> int:
         """
         sclk_clock_div_countに必要なビット数
         """
-        n = int(ceil_log2(self.sclk_clock_div_count))
+        n = int(
+            ceil_log2(SpiConfig.sclk_div_count_from_freq(system_clk_freq, sclk_freq))
+        )
         assert n > 0, "sclk_clock_div_count_width must be positive"
         return n
+
+    @property
+    def sclk_div_count(self) -> int:
+        """
+        SCLKのクロック分周比
+        """
+        return self.sclk_div_count_from_freq(
+            system_clk_freq=self.system_clk_freq,
+            sclk_freq=self.sclk_freq,
+        )
+
+    @property
+    def sclk_div_count_width(self) -> int:
+        """
+        sclk_clock_div_countに必要なビット数
+        """
+        return self.sclk_div_count_width_from_freq(
+            system_clk_freq=self.system_clk_freq,
+            sclk_freq=self.sclk_freq,
+        )
 
     @property
     def transfer_counter_width(self) -> int:
@@ -75,7 +103,7 @@ class SpiMaster(wiring.Component):
                 "done": Out(1),  # status
                 # internal config
                 "wr_cfg": In(1),  # config update
-                "cfg_div_counter_th": In(config.sclk_clock_div_count_width),
+                "cfg_div_counter_th": In(config.sclk_div_count_width),
                 # internal stream
                 "stream_mosi": In(stream.Signature(config.data_width)),
                 "stream_miso": Out(stream.Signature(config.data_width)),
@@ -91,10 +119,10 @@ class SpiMaster(wiring.Component):
         m = Module()
 
         # Clock Divider
-        div_counter = Signal(self._config.sclk_clock_div_count_width, init=0)
+        div_counter = Signal(self._config.sclk_div_count_width, init=0)
         div_counter_th = Signal(
-            self._config.sclk_clock_div_count_width,
-            init=self._config.sclk_clock_div_count - 1,
+            self._config.sclk_div_count_width,
+            init=self._config.sclk_div_count - 1,
         )
         div_counter_event = Signal(1, init=0)
         with m.If(div_counter < div_counter_th):
@@ -233,7 +261,7 @@ class SpiMaster(wiring.Component):
                     # Stream Out: Valid
                     self.stream_miso.valid.eq(1),
                     # Data Reg: Capture miso_reg -> stream_miso
-                    self.stream_miso.eq(miso_reg),
+                    self.stream_miso.payload.eq(miso_reg),
                     # Flags: Done
                     self.busy.eq(0),
                     self.done.eq(1),

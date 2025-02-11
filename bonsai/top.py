@@ -27,6 +27,7 @@ from amaranth.lib.fifo import SyncFIFO
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
+from periph.sdcard import SdCardConfig, SdCardMaster
 from periph.gpio import Gpi, Gpo
 from periph.spi import SpiConfig, SpiMaster
 from periph.timer import Timer, TimerMode
@@ -142,35 +143,7 @@ class Top(wiring.Component):
         ##################################################################
         # SDCard(SPI Master)
 
-        # SPI Modeの1トランザクションあたりのビット幅
-        SDCARD_SPI_DATA_WIDTH = 8
-        # ひとまず最低速度
-        SDCARD_SPI_SCLK_FREQ = 400e3
-        # N_cr (Command+Argument+CRC)送信後、応答待ちのbyte数 (可変)
-        SDCARD_SPI_RX_PAYLOAD_MAX_WORD = 8
-        # min 74 clk + wait 1ms. 1あたり8bit転送待つので十分なはず
-        SDCARD_DUMMY_CLOCK_CYCLES = 500
-        SDCARD_CLOCK_CYCLE_WIDTH = ceil_log2(SDCARD_DUMMY_CLOCK_CYCLES)
-        # TX Payload = 6byte {2'b01, cmd[5:0], arg[31:0], crc[6:0], 1'b1}
-        SDCARD_SPI_TX_PAYLOAD_WORD = 6
-        # RX Payload = 1byte (R1) { 1'b0, param_err, addr_err, erase_seq_err, com_crc_err, illegal_cmd, erase_state, in_idle_state }
-        SDCARD_SPI_RX_R1_PAYLOAD_WORD = 1
-        # RX Payload = 5byte (R3/R7) { R1, operation_condition[31:0] }
-        SDCARD_SPI_RX_R3_PAYLOAD_WORD = 5
-
-        class SDCardCommand(enum.Enum):
-            CMD0_GO_IDLE_STATE = 0x40  # CRC need
-            CMD1_RESET_STATE = 0x48
-            CMD8_SEND_IF_COND = 0x48  # CRC need
-            CMD16_SET_BLOCKLEN = 0x50
-            CMD17_READ_SINGLE_BLOCK = 0x51
-            CMD24_WRITE_SINGLE_BLOCK = 0x58
-            CMD55_APP_CMD = 0x77
-            CMD58_READ_OCR = 0x7A
-            ACMD41_SEND_OP_COND = 0x69
-
         # SD Card pin resouces
-        sdcard_cs = Signal(1, init=1)
         sdcard_pins = platform.request("sd_card_spi", 0, dir="-")
         m.submodules.sdcard_pin_buf_cs = sdcard_pin_buf_cs = io.Buffer(
             "o", sdcard_pins.cs
@@ -184,35 +157,21 @@ class Top(wiring.Component):
         m.submodules.sdcard_pin_cipo = sdcard_pin_cipo = io.Buffer(
             "i", sdcard_pins.cipo
         )
-        # HDL Module & Stream
-        m.submodules.sdcard_spim = sdcard_spim = SpiMaster(
-            SpiConfig(
-                stream_clk_freq=DEFAULT_CLK_FREQ,
-                sclk_freq=SDCARD_SPI_SCLK_FREQ,
-                data_width=8,
-            )
+        # SD Card SPI Master
+        m.submodules.sdcardm = sdcardm = SdCardMaster(
+            SdCardConfig(system_clk_freq=DEFAULT_CLK_FREQ)
         )
-        m.submodules.sdcard_mosi_fifo = sdcard_mosi_fifo = SyncFIFO(
-            width=SDCARD_SPI_DATA_WIDTH, depth=SDCARD_SPI_TX_PAYLOAD_WORD
-        )
-        m.submodules.sdcard_miso_fifo = sdcard_miso_fifo = SyncFIFO(
-            width=SDCARD_SPI_DATA_WIDTH, depth=SDCARD_SPI_TX_PAYLOAD_WORD
-        )
-        sdcard_mosi_fifo_empty = sdcard_mosi_fifo.w_level == 0  # Idle (next action)
-        sdcard_miso_fifo_empty = sdcard_miso_fifo.r_level == 0  # need to wait
         # Connection
         m.d.comb += [
             # External pins (SPI mode: DAT1=NC/DAT2=NC)
-            sdcard_pin_buf_cs.o.eq(sdcard_cs),  # DAT3/CS
-            sdcard_pin_buf_clk.o.eq(sdcard_spim.sclk),  # CLK
-            sdcard_pin_buf_copi.o.eq(sdcard_spim.mosi),  # CMD/DMOSI
-            sdcard_spim.miso.eq(sdcard_pin_cipo.i),  # DAT0/MISO
-            # Internal SPI Master
-            sdcard_spim.en.eq(1),
-            sdcard_spim.wr_cfg.eq(0),  # div_counter_th固定
+            sdcard_pin_buf_cs.o.eq(sdcardm.cs),  # DAT3/CS
+            sdcard_pin_buf_clk.o.eq(sdcardm.sclk),  # CLK
+            sdcard_pin_buf_copi.o.eq(sdcardm.mosi),  # CMD/DMOSI
+            sdcardm.miso.eq(sdcard_pin_cipo.i),  # DAT0/MISO
+            # Internal SDCard/SPI Master
+            sdcardm.en.eq(1),
+            # TODO: Setup
         ]
-        wiring.connect(sdcard_spim.stream_mosi, sdcard_mosi_fifo.r_stream)
-        wiring.connect(sdcard_miso_fifo.w_stream, sdcard_spim.stream_miso)
 
         ##################################################################
         # GPIO (LED/Button)
