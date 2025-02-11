@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build",
+            "label": "build (win)",
             "type": "shell",
-            "command": "task run build",
+            "command": "environment && task run build",
             "group": {
                 "kind": "build",
                 "isDefault": true
