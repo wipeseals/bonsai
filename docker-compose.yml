@@ -1,9 +1,12 @@
-version: "3.8"
-
 services:
-  bonsai:
+  test:
     build: .
     volumes:
       - ./bonsai:/app/bonsai
       - ./tests:/app/tests
-    command: uv run pytest -v -rfs
+    command: uv run taskipy test
+  build:
+    build: .
+    volumes:
+      - ./bonsai:/app/bonsai
+    command: uv run taskipy build
