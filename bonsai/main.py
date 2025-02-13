@@ -7,7 +7,7 @@ from amaranth import Elaboratable
 from amaranth.build.plat import Platform
 from amaranth_boards.arty_a7 import ArtyA7_35Platform
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
-from periph.sdcard import SdCardConfig, SdCardMaster
+from bonsai.periph.tfcard import TfCardConfig, TfCardMaster
 from periph.spi import SpiConfig, SpiMaster
 from periph.timer import Timer
 from periph.uart import UartConfig, UartRx, UartTx
@@ -49,7 +49,7 @@ def build(args: argparse.Namespace) -> None:
             UartRx(config=UartConfig.from_freq(clk_freq=clk_freq)),
             VgaOut(VgaConfig.preset_tangnano9k_800x480()),
             SpiMaster(SpiConfig(system_clk_freq=clk_freq, sclk_freq=10e6)),
-            SdCardMaster(SdCardConfig(system_clk_freq=clk_freq)),
+            TfCardMaster(TfCardConfig(system_clk_freq=clk_freq)),
         ]
         for component in target_components:
             filename = f"{component.__class__.__name__}"

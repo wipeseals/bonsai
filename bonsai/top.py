@@ -27,7 +27,7 @@ from amaranth.lib.fifo import SyncFIFO
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
-from periph.sdcard import SdCardConfig, SdCardMaster
+from bonsai.periph.tfcard import TfCardConfig, TfCardMaster
 from periph.gpio import Gpi, Gpo
 from periph.spi import SpiConfig, SpiMaster
 from periph.timer import Timer, TimerMode
@@ -158,8 +158,8 @@ class Top(wiring.Component):
             "i", sdcard_pins.cipo
         )
         # SD Card SPI Master
-        m.submodules.sdcardm = sdcardm = SdCardMaster(
-            SdCardConfig(system_clk_freq=DEFAULT_CLK_FREQ)
+        m.submodules.sdcardm = sdcardm = TfCardMaster(
+            TfCardConfig(system_clk_freq=DEFAULT_CLK_FREQ)
         )
         # Connection
         m.d.comb += [

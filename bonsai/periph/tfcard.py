@@ -12,14 +12,14 @@ from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from periph.spi import SpiConfig, SpiMaster
 
-# SD Card Address Width
-SD_ADDR_WIDTH: int = 32
+# TF Card Address Width
+TF_ADDR_WIDTH: int = 32
 
 
 @dataclass
-class SdCardConfig:
+class TfCardConfig:
     """
-    SD Card Configuration
+    TF Card Configuration
     """
 
     # System側のクロック周波数
@@ -32,7 +32,7 @@ class SdCardConfig:
     setup_retry_max: int = 100
     # setup時のDummy cycle数
     setup_dummy_cycles: int = 100
-    # SdCardModule <-> SPI Master間のFIFO Depth
+    # TfCardModule <-> SPI Master間のFIFO Depth
     data_stream_fifo_depth: int = 8
     # Command Frame後の待ちbyte最大
     ncr_max_word: int = 8 + 1
@@ -76,13 +76,9 @@ class SdCardConfig:
         )
 
 
-class SDCardCommand(enum.Enum):
+class TfCardCommand(enum.Enum):
     """
-    SD Card Command
-    refer.
-    - http://elm-chan.org/docs/mmc/mmc.html
-    - https://memes.sakura.ne.jp/memes/?page_id=2225
-
+    TF Card Command
     """
 
     CMD0_GO_IDLE_STATE = 0x40  # CRC need
@@ -104,9 +100,9 @@ class SDCardCommand(enum.Enum):
     CMD58_READ_OCR = 0x7A
 
 
-class SdCardResponse(enum.Enum):
+class TfCardResponse(enum.Enum):
     """
-    SD Card Response
+    TF Card Response
     """
 
     R1 = 1
@@ -116,9 +112,9 @@ class SdCardResponse(enum.Enum):
     R7 = 5
 
 
-class SdCardMasterCmd(enum.Enum):
+class TfCardMasterCmd(enum.Enum):
     """
-    SdCardMaster制御用コマンド (内部独自)
+    TfCardMaster制御用コマンド (内部独自)
 
     コマンドシーケンス例:
     - Single Block Read
@@ -144,23 +140,23 @@ class SdCardMasterCmd(enum.Enum):
     READ_CID = 8
 
 
-class SdCardMasterReqSignature(wiring.Signature):
+class TfCardMasterReqSignature(wiring.Signature):
     """
-    SdCardMaster Request Signature
+    TfCardMaster Request Signature
     """
 
     def __init__(self):
         super().__init__(
             {
-                "cmd": Out(SdCardMasterCmd),
-                "addr": Out(SD_ADDR_WIDTH),
-                "len": Out(SD_ADDR_WIDTH),
+                "cmd": Out(TfCardMasterCmd),
+                "addr": Out(TF_ADDR_WIDTH),
+                "len": Out(TF_ADDR_WIDTH),
             }
         )
 
 
-class SdCardMaster(wiring.Component):
-    def __init__(self, config: SdCardConfig, *, src_loc_at=0):
+class TfCardMaster(wiring.Component):
+    def __init__(self, config: TfCardConfig, *, src_loc_at=0):
         self._config = config
         self._spi_config = config.create_spi_config()
         super().__init__(
@@ -169,7 +165,7 @@ class SdCardMaster(wiring.Component):
                 "en": In(1),
                 "start": In(1),
                 "abort": In(1),
-                "req": In(SdCardMasterReqSignature()),
+                "req": In(TfCardMasterReqSignature()),
                 # internal response/status
                 "setup_done": Out(1),
                 "setup_error": Out(1),
@@ -182,7 +178,7 @@ class SdCardMaster(wiring.Component):
                 # datain/dataout stream
                 "wr_stream": In(stream.Signature(8)),
                 "rd_stream": Out(stream.Signature(8)),
-                # for SD Card
+                # for TF Card
                 "cs": Out(1),  # only support single device
                 "mosi": Out(1),
                 "miso": In(1),
@@ -213,12 +209,12 @@ class SdCardMaster(wiring.Component):
         m.submodules.miso_fifo = miso_fifo = SyncFIFO(
             width=8, depth=self._config.data_stream_fifo_depth
         )
-        # SdCardMaster -> [[FIFO -> SPI Master]]
+        # TfCardMaster -> [[FIFO -> SPI Master]]
         wiring.connect(m, mosi_fifo.r_stream, spim.stream_mosi)
-        # SdCardMaster <- [[FIFO <- SPI Master]]
+        # TfCardMaster <- [[FIFO <- SPI Master]]
         wiring.connect(m, miso_fifo.w_stream, spim.stream_miso)
         m.d.comb += [
-            # External SDCard/SPI
+            # External TfCard/SPI
             self.cs.eq(spi_cs),
             self.sclk.eq(spim.sclk),
             self.mosi.eq(spim.mosi),
@@ -248,7 +244,7 @@ class SdCardMaster(wiring.Component):
         # Dummy Cycle (DC) Driver
         req_dc = Signal(1, reset=0)
         done_dc = Signal(1, reset=0)
-        counter_dc = Signal(SD_ADDR_WIDTH, reset=0)
+        counter_dc = Signal(TF_ADDR_WIDTH, reset=0)
         # req_dcがなければ完全無効とし、別driverがfifo操作できるようにする
         # 完了時に自発クリアされる
         with m.If(req_dc):
