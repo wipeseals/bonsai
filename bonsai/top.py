@@ -27,7 +27,6 @@ from amaranth.lib.fifo import SyncFIFO
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
-from bonsai.periph.tfcard import TfCardConfig, TfCardMaster
 from periph.gpio import Gpi, Gpo
 from periph.spi import SpiConfig, SpiMaster
 from periph.timer import Timer, TimerMode
@@ -141,36 +140,35 @@ class Top(wiring.Component):
         ]
 
         ##################################################################
-        # SDCard(SPI Master)
+        # TF Card(SPI Master)
 
-        # SD Card pin resouces
-        sdcard_pins = platform.request("sd_card_spi", 0, dir="-")
-        m.submodules.sdcard_pin_buf_cs = sdcard_pin_buf_cs = io.Buffer(
-            "o", sdcard_pins.cs
+        # pin resouces
+        tfcard_pins = platform.request("sd_card_spi", 0, dir="-")
+        m.submodules.tfcard_pin_buf_cs = tfcard_pin_buf_cs = io.Buffer(
+            "o", tfcard_pins.cs
         )
-        m.submodules.sdcard_pin_buf_clk = sdcard_pin_buf_clk = io.Buffer(
-            "o", sdcard_pins.clk
+        m.submodules.tfcard_pin_buf_clk = tfcard_pin_buf_clk = io.Buffer(
+            "o", tfcard_pins.clk
         )
-        m.submodules.sdcard_pin_buf_copi = sdcard_pin_buf_copi = io.Buffer(
-            "o", sdcard_pins.copi
+        m.submodules.tfcard_pin_buf_copi = tfcard_pin_buf_copi = io.Buffer(
+            "o", tfcard_pins.copi
         )
-        m.submodules.sdcard_pin_cipo = sdcard_pin_cipo = io.Buffer(
-            "i", sdcard_pins.cipo
+        m.submodules.tfcard_pin_cipo = tfcard_pin_cipo = io.Buffer(
+            "i", tfcard_pins.cipo
         )
         # SD Card SPI Master
-        m.submodules.sdcardm = sdcardm = TfCardMaster(
-            TfCardConfig(system_clk_freq=DEFAULT_CLK_FREQ)
+        m.submodules.tfcard_spim = tfcard_spim = SpiMaster(
+            SpiConfig(system_clk_freq=DEFAULT_CLK_FREQ, spi_clk_freq=400e3)
         )
         # Connection
         m.d.comb += [
             # External pins (SPI mode: DAT1=NC/DAT2=NC)
-            sdcard_pin_buf_cs.o.eq(sdcardm.cs),  # DAT3/CS
-            sdcard_pin_buf_clk.o.eq(sdcardm.sclk),  # CLK
-            sdcard_pin_buf_copi.o.eq(sdcardm.mosi),  # CMD/DMOSI
-            sdcardm.miso.eq(sdcard_pin_cipo.i),  # DAT0/MISO
+            tfcard_pin_buf_cs.o.eq(tfcard_spim.cs),  # DAT3/CS
+            tfcard_pin_buf_clk.o.eq(tfcard_spim.sclk),  # CLK
+            tfcard_pin_buf_copi.o.eq(tfcard_spim.mosi),  # CMD/DMOSI
+            tfcard_spim.miso.eq(tfcard_pin_cipo.i),  # DAT0/MISO
             # Internal SDCard/SPI Master
-            sdcardm.en.eq(1),
-            # TODO: Setup
+            tfcard_spim.en.eq(1),
         ]
 
         ##################################################################
