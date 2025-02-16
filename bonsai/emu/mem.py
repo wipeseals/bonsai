@@ -462,13 +462,13 @@ class UartModule(MemMappedRegModule):
     """
     UARTモジュール
 
-    Register Map:
+    Register Map(32bit register):
         | addr       | name     | RW | default    | description |
         | ---------- | -------- | -- | ---------- | ----------- |
-        | 0x00000000 | RX_VALID | RO |0x00000000 | bit[0] = RX data valid |
-        | 0x00000004 | RX_DATA  | RO |0x00000000 | RX data |
-        | 0x00000008 | TX_FULL  | RO |0x00000000 | bit[0] = TX full |
-        | 0x0000000C | TX_DATA  | RW |0x00000000 | TX data |
+        | 0x00000000 | RX_VALID | RO | 0x00000000 | bit[0] = RX data valid |
+        | 0x00000004 | RX_DATA  | RO | 0x00000000 | RX data |
+        | 0x00000008 | TX_FULL  | RO | 0x00000000 | bit[0] = TX full |
+        | 0x0000000C | TX_DATA  | RW | 0x00000000 | TX data |
     """
 
     class RegIdx(enum.IntEnum):
@@ -562,6 +562,13 @@ class UartModule(MemMappedRegModule):
         else:
             assert False, f"Invalid register index: {reg_idx}"
             return AccessResult.ERROR_OUT_OF_RANGE
+
+    @property
+    def stdout(self) -> str:
+        """
+        Get the stdout
+        """
+        return "".join(self._stdout)
 
 
 @dataclass
