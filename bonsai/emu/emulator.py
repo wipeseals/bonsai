@@ -47,14 +47,6 @@ class Emulator:
                 BusArbiterEntry(slave=uart0, start_addr=args.uart_start_addr),
             ],
         )
-        print(bus0)
-        # test print uart
-        for c in "Hello, World!\n":
-            bus0.write32(
-                args.uart_start_addr
-                + (UartModule.RegIdx.TX_DATA * mem_space.num_data_bytes),
-                ord(c),
-            )
 
         # TODO: Implement the emulator
 
