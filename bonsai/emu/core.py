@@ -1,8 +1,30 @@
 import enum
+import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Tuple
 
 from emu.mem import AccessResult, BusSlave, MemSpace
+
+
+class CoreException(enum.IntEnum):
+    """
+    CPU例外の種類
+    """
+
+    # 命令アクセス例外
+    INST_ACCESS = 1
+    # データアクセス例外
+    DATA_ACCESS = enum.auto()
+    # 命令デコード例外
+    INST_DECODE = enum.auto()
+    # 命令実行例外
+    INST_EXECUTE = enum.auto()
+    # データ実行例外
+    DATA_EXECUTE = enum.auto()
+    # 割り込み
+    INTERRUPT = enum.auto()
+    # トラップ
+    TRAP = enum.auto()
 
 
 @dataclass
@@ -51,6 +73,32 @@ class RegFile:
         if addr == 0:
             return
         self.regs[addr] = data
+
+
+@dataclass
+class IfData:
+    """
+    Fetch stage data
+    """
+
+    # PC
+    inst_addr: MemSpace.AbstAddrType
+    # 命令データ
+    inst_data: MemSpace.AbstDataType
+
+    @classmethod
+    def fetch(
+        cls, pc: MemSpace.AbstAddrType, slave: BusSlave
+    ) -> Tuple["IfData", CoreException | None]:
+        """
+        Fetch stage: 命令を取得する
+        """
+        # 命令データ取得
+        inst_data, result = slave.read(pc)
+        if result != AccessResult.OK:
+            logging.warning(f"Failed to read instruction: {pc=}, {result=}")
+            return cls(pc, 0), CoreException.INST_ACCESS
+        return cls(pc, inst_data), None
 
 
 @enum.unique
@@ -167,7 +215,7 @@ class InstType(enum.Enum):
 
 
 @dataclass
-class InstData:
+class IdData:
     """
     命令データ
 
@@ -223,7 +271,7 @@ class InstData:
         try:
             return InstFmt(inst_data & 0x7F)
         except ValueError as e:
-            assert False, f"Unknown opcode: {inst_data=}, {e=}"
+            logging.warning(f"Unknown opcode: {inst_data=}, {e=}")
             return InstFmt.DEBUG_UNDEFINED
 
     @classmethod
@@ -240,12 +288,13 @@ class InstData:
     @classmethod
     def _decode_r(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         R-Type (Register Type) Decoder
         | R-Type (Register Type):  | funct7@31-25       | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
         """
 
+        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
@@ -265,10 +314,11 @@ class InstData:
             0x3: {0x00: InstType.SLTU, 0x01: InstType.MULU},
         }
         inst_type = InstType.DEBUG_UNDEFINED
-        if funct3 in table and funct7 in table[funct3]:
+        if (funct3 in table) and (funct7 in table[funct3]):
             inst_type = table[funct3][funct7]
         else:
-            assert False, f"Unknown funct3/funct7: {funct3=}/{funct7=}"
+            logging.warning(f"Unknown funct3/funct7: {funct3=}/{funct7=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -280,16 +330,18 @@ class InstData:
             rd=rd,
             funct3=funct3,
             funct7=funct7,
-        )
+        ), exception
 
     @classmethod
     def _decode_i(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         I-Type (Immediate Type) Decoder
         | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
         """
+
+        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
@@ -311,7 +363,11 @@ class InstData:
             0x2: lambda: InstType.SLTI,
             0x3: lambda: InstType.SLTIU,
         }
-        inst_type = table[funct3]
+        inst_type = table.get(funct3, None)
+        if inst_type is None:
+            logging.warning(f"Unknown funct3/imm: {funct3=}/{imm=}")
+            inst_type = InstType.DEBUG_UNDEFINED
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -323,16 +379,17 @@ class InstData:
             funct3=funct3,
             imm=imm,
             imm_se=imm_se,
-        )
+        ), exception
 
     @classmethod
     def _decode_s(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         S-Type (Store Type) Decoder
         | S-Type (Store Type):     | imm[11:5]@31-25    | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:0]@11-7    | opcode@6-0 |
         """
+        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
@@ -347,7 +404,10 @@ class InstData:
             0x1: InstType.SH,
             0x2: InstType.SW,
         }
-        inst_type = table[funct3]
+        inst_type = table.get(funct3, InstType.DEBUG_UNDEFINED)
+        if inst_type == InstType.DEBUG_UNDEFINED:
+            logging.warning(f"Unknown funct3: {funct3=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -359,15 +419,16 @@ class InstData:
             funct3=funct3,
             imm=imm,
             imm_se=imm_se,
-        )
+        ), exception
 
     def _decode_b(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         B-Type (Branch Type) Decoder
         | B-Type (Branch Type):    | imm[12|10:5]@31-25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:1|11]@11-7 | opcode@6-0 |
         """
+        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
@@ -388,7 +449,10 @@ class InstData:
             0x6: InstType.BLTU,
             0x7: InstType.BGEU,
         }
-        inst_type = table[funct3]
+        inst_type = table.get(funct3, InstType.DEBUG_UNDEFINED)
+        if inst_type == InstType.DEBUG_UNDEFINED:
+            logging.warning(f"Unknown funct3: {funct3=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -400,15 +464,16 @@ class InstData:
             funct3=funct3,
             imm=imm,
             imm_se=imm_se,
-        )
+        ), exception
 
     def _decode_u(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         U-Type (Upper Type) Decoder
         | U-Type (Upper Type):     | imm[31:12]@31-12                                          | rd@11-7          | opcode@6-0 |
         """
+        exception: CoreException | None = None
         opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
         imm = (inst_data >> 12) & 0xFFFFF  # Extract bits 31-12 for imm[31:12]
@@ -418,7 +483,10 @@ class InstData:
             0b0110111: InstType.LUI,
             0b0010111: InstType.AUIPC,
         }
-        inst_type = table[opcode]
+        inst_type = table.get(opcode, InstType.DEBUG_UNDEFINED)
+        if inst_type == InstType.DEBUG_UNDEFINED:
+            logging.warning(f"Unknown opcode: {opcode=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -432,11 +500,12 @@ class InstData:
 
     def _decode_j(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         J-Type (Jump Type) Decoder
         | J-Type (Jump Type):      | imm[20|10:1|11|19:12]@31-25                               | rd@11-7          | opcode@6-0 |
         """
+        exception: CoreException | None = None
         opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
         imm = (
@@ -450,7 +519,10 @@ class InstData:
         table: Dict[int, InstType] = {
             0b1101111: InstType.JAL,
         }
-        inst_type = table[opcode]
+        inst_type = table.get(opcode, InstType.DEBUG_UNDEFINED)
+        if inst_type == InstType.DEBUG_UNDEFINED:
+            logging.warning(f"Unknown opcode: {opcode=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -465,11 +537,12 @@ class InstData:
     @classmethod
     def _decode_i_env(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         I-Type (Immediate Type) for Environment Call/Break Decoder
         | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
         """
+        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
@@ -481,7 +554,10 @@ class InstData:
             0x000: InstType.ECALL,
             0x001: InstType.EBREAK,
         }
-        inst_type = table[imm]
+        inst_type = table.get(imm, InstType.DEBUG_UNDEFINED)
+        if inst_type == InstType.DEBUG_UNDEFINED:
+            logging.warning(f"Unknown imm: {imm=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -498,12 +574,12 @@ class InstData:
     @classmethod
     def _decode_r_atomic(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData":
+    ) -> Tuple["IdData", CoreException | None]:
         """
         R-Type (Register Type) for Atomic Decoder
         | R-Type                   | funct5@31-27 | aq@26 | rl@25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
         """
-
+        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
@@ -524,7 +600,10 @@ class InstData:
             0x14: InstType.AMOMAX_W,
             0x10: InstType.AMOMIN_W,
         }
-        inst_type = table[func5]
+        inst_type = table.get(func5, InstType.DEBUG_UNDEFINED)
+        if inst_type == InstType.DEBUG_UNDEFINED:
+            logging.warning(f"Unknown func5: {func5=}")
+            exception = CoreException.INST_DECODE
 
         return cls(
             inst_addr=inst_addr,
@@ -538,21 +617,23 @@ class InstData:
             func5=func5,
             aq=aq,
             rl=rl,
-        )
+        ), exception
 
     @classmethod
-    def decode(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> "InstData" | None:
+    def decode(cls, fetch_data: IfData) -> Tuple["IdData", CoreException | None]:
         """
         id stage: 命令デコードした結果を返す
         """
+
         # 命令フォーマット
-        inst_fmt = cls._decode_opcode(inst_data)
+        inst_fmt = cls._decode_opcode(fetch_data.inst_data)
         # 命令タイプ: inst_fmt -> func
         table: Dict[
             InstFmt,
-            Callable[[MemSpace.AbstAddrType, MemSpace.AbstDataType], "InstData"],
+            Callable[
+                [MemSpace.AbstAddrType, MemSpace.AbstDataType],
+                Tuple["IdData", CoreException | None],
+            ],
         ] = {
             InstFmt.R: cls._decode_r,
             InstFmt.I: cls._decode_i,
@@ -566,21 +647,21 @@ class InstData:
             InstFmt.R_ATOMIC: cls._decode_r_atomic,
             # TODO: Implement the floating point extension
         }
-        dst = table.get(inst_fmt, None)
-        if dst is not None:
-            return dst(inst_addr, inst_data)
+        f = table.get(inst_fmt, None)
+        if f is not None:
+            return f(fetch_data.inst_addr, fetch_data.inst_data)
         else:
-            assert False, f"Unknown instruction format: {inst_fmt=}"
+            logging.warning(f"Unknown instruction format: {inst_fmt=}")
             return cls(
-                inst_addr=inst_addr,
-                inst_data=inst_data,
+                inst_addr=fetch_data.inst_addr,
+                inst_data=fetch_data.inst_data,
                 inst_fmt=InstFmt.DEBUG_UNDEFINED,
                 inst_type=InstType.DEBUG_UNDEFINED,
-            )
+            ), CoreException.INST_DECODE
 
 
 @dataclass
-class ExecResult:
+class ExData:
     """
     EX stageの結果
     """
@@ -602,7 +683,7 @@ class ExecResult:
     @classmethod
     def _execute_r(
         cls,
-        inst_data: InstData,
+        inst_data: IdData,
         regs: RegFile,
         reg_bit_width: int,
     ) -> MemSpace.AbstDataType:
@@ -652,7 +733,7 @@ class ExecResult:
 
     def _execute_i(
         cls,
-        inst_data: InstData,
+        inst_data: IdData,
         regs: RegFile,
         reg_bit_width: int,
     ) -> MemSpace.AbstDataType:
@@ -689,8 +770,8 @@ class ExecResult:
 
     @classmethod
     def execute(
-        cls, inst_data: InstData, regs: RegFile, reg_bit_width: int
-    ) -> "ExecResult":
+        cls, inst_data: IdData, regs: RegFile, reg_bit_width: int
+    ) -> Tuple["ExData", CoreException | None]:
         """
         execute stage: Decodeした結果とPC(inst_dataに内包)/Reg値から命令を実行
         Reg/Memの書き戻しは現時点ではせず、MEM/WBへの指示として返す
@@ -698,7 +779,7 @@ class ExecResult:
         # 命令タイプ: inst_fmt -> func
         table: Dict[
             InstFmt,
-            Callable[[InstData, RegFile, int], "ExecResult"],
+            Callable[[IdData, RegFile, int], "ExData"],
         ] = {
             InstFmt.R: cls._execute_r,
             InstFmt.I: cls._execute_i,
@@ -713,11 +794,12 @@ class ExecResult:
         }
         dst = table.get(inst_data.inst_fmt, None)
 
-        if dst is None:
-            # Decodeできていればここには来ないはず
-            raise NotImplementedError(
-                f"Unknown instruction format: {inst_data.inst_fmt=}"
-            )
+        # TODO: exのArithmetic ExやEcallなどもあるので例外処理いれる
+        # if dst is None:
+        #     # Decodeできていればここには来ないはず
+        #     raise NotImplementedError(
+        #         f"Unknown instruction format: {inst_data.inst_fmt=}"
+        #     )
 
         # reg_bit_width は Compressed Extension がある場合に動的に切り替わるのでMemSpace直参照せず、引数で受ける
         return dst(inst_data, regs, reg_bit_width)
@@ -743,36 +825,26 @@ class Core:
         """
         1cyc分進める
         """
-        # IF
-        inst_addr, access_ret, inst_data = self._fetch_inst()
-        if access_ret != AccessResult.OK:
-            # 安定するまでは明らかに不具合だが、最終的にはCoreの例外として処理すべき内容
-            assert False, f"Fetch Error: {access_ret}"
-            raise RuntimeError(f"TODO: impl Exception Handler: {access_ret=}")
-        # ID
-        inst_data = self._decode_inst(inst_data)
-        if inst_data.inst_type == InstType.DEBUG_UNDEFINED:
-            # 安定するまでは不正命令のFetchは止めるべきだが、最終的にはCoreの例外として処理すべき内容
-            assert False, "Undefined instruction"
-            raise NotImplementedError("TODO: impl Exception Handler")
-        # EX: TODO: reg_bit_width は Compressed Extension がある場合に動的に切り替わるので、動的に変更できるようにする
-        ex_ret = ExecResult.execute(inst_data, self.regs, self.config.reg_bit_width)
+        # IF: Instruction Fetch
+        if_data, if_ex = IfData.fetch(pc=self.pc, slave=self.slave)
+        if if_ex is not None:
+            logging.warning(f"Fetch Error: {if_ex=}")
+            raise RuntimeError(f"TODO: impl Exception Handler: {if_ex=}")
+
+        # ID: Instruction Decode
+        id_data, id_ex = IdData.decode(fetch_data=if_data)
+        if id_ex is not None:
+            logging.warning(f"Decode Error: {id_ex=}")
+            raise RuntimeError(f"TODO: impl Exception Handler: {id_ex=}")
+
+        # EX: Execute
+        ex_data, ex_ex = ExData.execute(id_data, self.regs, self.config.reg_bit_width)
+        if ex_ex is not None:
+            logging.warning(f"Execute Error: {ex_ex=}")
+            raise RuntimeError(f"TODO: impl Exception Handler: {ex_ex=}")
         # MEM
+        # TODO: Implement MEM stage
         # WB
+        # TODO: Implement WB stage
 
-    def _fetch_inst(
-        self,
-    ) -> Tuple[MemSpace.AbstAddrType, AccessResult, MemSpace.AbstDataType]:
-        """
-        命令データを取得
-        """
-        inst_addr = self.pc
-        accsess_ret, inst_data = self.slave.read(inst_addr)
-        return inst_addr, accsess_ret, inst_data
-
-    def _decode_inst(self, inst_data: MemSpace.AbstDataType) -> InstData:
-        """
-        命令をデコード
-        """
-        inst_data = InstData.decode(inst_addr=self.pc, inst_data=inst_data)
-        return inst_data
+        # TODO: Exception, Interrupt, Debug, etc...
