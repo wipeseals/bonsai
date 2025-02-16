@@ -1,7 +1,6 @@
 [project]
 name = "bonsai"
-version = "0.1.0"
-description = "toy risc-v processor"
+description = "bonsai is a RISC-V CPU designed using Amaranth HDL"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -10,6 +9,7 @@ dependencies = [
     "asyncio>=3.4.3",
     "taskipy>=1.14.1",
 ]
+dynamic = ["version"]
 
 [dependency-groups]
 dev = [
@@ -22,6 +22,7 @@ dev = [
     "mypy>=1.14.1",
     "types-requests>=2.32.0.20241016",
     "pytest-xdist>=3.6.1",
+    "setuptools-scm>=8.1.0",
 ]
 
 
@@ -29,7 +30,23 @@ dev = [
 amaranth-boards = { git = "https://github.com/amaranth-lang/amaranth-boards.git" }
 amaranth = { git = "https://github.com/amaranth-lang/amaranth.git" }
 
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { git = true }]
+
+[build-system]
+requires = ["setuptools", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["bonsai"]
+include-package-data = true
+
+[tool.setuptools_scm]
+version_scheme = "post-release"
+local_scheme = "dirty-tag"
+
 [tool.taskipy.tasks]
+build = "uv build"
 run = "python bonsai/main.py"
 check = "ruff check --fix"
 format = "ruff format"
