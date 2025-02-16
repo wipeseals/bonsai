@@ -32,9 +32,8 @@ class Emulator:
             if args.program_binary_path
             else b""
         )
-        program_size = min(len(program_data), 4096)  # min 4KiB
         ram0 = FixSizeRam(
-            space=mem_space, name="ram0", size=program_size, init_data=program_data
+            space=mem_space, name="ram0", size=args.ram_size, init_data=program_data
         )
 
         # Main Bus
@@ -81,6 +80,12 @@ class Emulator:
             type=int,
             default=0x8000_0000,
             help="Set the start address of the RAM",
+        )
+        parser.add_argument(
+            "--ram_size",
+            type=int,
+            default=64 * 1024,  # 64KB
+            help="Set the size of the RAM",
         )
         parser.add_argument(
             "--uart_start_addr",
