@@ -123,7 +123,7 @@ class BusSlave(ABC):
         addr: MemSpace.AbstAddrType,
         byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         """
         Read data from the slave
         """
@@ -146,7 +146,7 @@ class BusSlave(ABC):
         self,
         addr: MemSpace.AbstAddrType,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         """
         Read 8bit data from the slave
         """
@@ -156,7 +156,7 @@ class BusSlave(ABC):
         self,
         addr: MemSpace.AbstAddrType,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         """
         Read 16bit data from the slave
         """
@@ -166,7 +166,7 @@ class BusSlave(ABC):
         self,
         addr: MemSpace.AbstAddrType,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         """
         Read 32bit data from the slave
         """
@@ -177,7 +177,7 @@ class BusSlave(ABC):
         self,
         addr: MemSpace.AbstAddrType,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         """
         Read 64bit data from the slave
         """
@@ -188,7 +188,7 @@ class BusSlave(ABC):
         self,
         addr: MemSpace.AbstAddrType,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         """
         Read 128bit data from the slave
         """
@@ -331,7 +331,7 @@ class FixSizeRam(BusSlave):
         addr: MemSpace.AbstAddrType,
         byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         # データ取得
         fetch_data = self.datas[addr : addr + self.space.num_data_bytes]
         data = fetch_data.view(self.space.DataType)
@@ -648,7 +648,7 @@ class BusArbiter(BusSlave):
         addr: MemSpace.AbstAddrType,
         byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> (AccessResult, MemSpace.AbstDataType):
+    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
         for entry in self._entries:
             if entry.is_in_range(addr):
                 return entry.slave.read(

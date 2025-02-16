@@ -1,8 +1,8 @@
 import enum
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Tuple
 
-from emu.mem import BusSlave, MemSpace
+from emu.mem import AccessResult, BusSlave, MemSpace
 
 
 @dataclass
@@ -36,6 +36,7 @@ class RegFile:
         """
         Read a register
         """
+        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
         # zero register
         if addr == 0:
             return 0
@@ -45,6 +46,7 @@ class RegFile:
         """
         Write a register
         """
+        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
         # zero register
         if addr == 0:
             return
@@ -207,7 +209,7 @@ class InstData:
         try:
             return InstFmt(inst_data & 0x7F)
         except ValueError as e:
-            assert False, f"Unknown opcode: {inst_data}, {e}"
+            assert False, f"Unknown opcode: {inst_data=}, {e=}"
             return InstFmt.DEBUG_UNDEFINED
 
     @classmethod
@@ -251,7 +253,7 @@ class InstData:
         if funct3 in table and funct7 in table[funct3]:
             inst_type = table[funct3][funct7]
         else:
-            assert False, f"Unknown funct3/funct7: {funct3}/{funct7}"
+            assert False, f"Unknown funct3/funct7: {funct3=}/{funct7=}"
 
         return cls(
             inst_addr=inst_addr,
@@ -490,7 +492,7 @@ class InstData:
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
     ) -> "InstData" | None:
         """
-        命令データをデコード
+        id stage: 命令デコードした結果を返す
         """
         # 命令フォーマット
         inst_fmt = cls._decode_opcode(inst_data)
@@ -513,12 +515,88 @@ class InstData:
         if dst is not None:
             return dst(inst_addr, inst_data)
         else:
-            assert False, f"Unknown instruction format: {inst_fmt}"
+            assert False, f"Unknown instruction format: {inst_fmt=}"
             return cls(
                 inst_addr=inst_addr,
                 inst_data=inst_data,
                 inst_fmt=InstFmt.DEBUG_UNDEFINED,
                 inst_type=InstType.DEBUG_UNDEFINED,
+            )
+
+
+@dataclass
+class ExecResult:
+    """
+    EX stageの結果
+    """
+
+    def _execute_r(
+        self,
+        rs1_data: MemSpace.AbstDataType,
+        rs2_data: MemSpace.AbstDataType,
+        reg_bit_width: int,
+    ) -> MemSpace.AbstDataType:
+        """
+        Execute R-Type instruction
+        """
+        rd_data = 0
+        if self.inst_type == InstType.ADD:
+            rd_data = rs1_data + rs2_data
+        elif self.inst_type == InstType.SUB:
+            rd_data = rs1_data - rs2_data
+        elif self.inst_type == InstType.SLL:
+            rd_data = rs1_data << rs2_data
+        elif self.inst_type == InstType.SLT:
+            rs1_data_se = self._sign_ext(rs1_data, reg_bit_width)
+            rs2_data_se = self._sign_ext(rs2_data, reg_bit_width)
+            rd_data = 1 if rs1_data_se < rs2_data_se else 0
+        elif self.inst_type == InstType.SLTU:
+            rd_data = 1 if rs1_data < rs2_data else 0
+        elif self.inst_type == InstType.XOR:
+            rd_data = rs1_data ^ rs2_data
+        elif self.inst_type == InstType.SRL:
+            rd_data = rs1_data >> rs2_data
+        elif self.inst_type == InstType.SRA:
+            rd_data = rs1_data >> rs2_data
+        elif self.inst_type == InstType.OR:
+            rd_data = rs1_data | rs2_data
+        elif self.inst_type == InstType.AND:
+            rd_data = rs1_data & rs2_data
+        else:
+            assert False, f"Unknown instruction: {self.inst_type=}"
+            pass
+        # shiftrやaddで超えるケースがあるので対策
+        rd_data &= (1 << reg_bit_width) - 1
+        return rd_data
+
+    @classmethod
+    def execute(cls, inst_data: InstData, regs: RegFile) -> "ExecResult":
+        """
+        execute stage: Decodeした結果とPC(inst_dataに内包)/Reg値から命令を実行
+        Reg/Memの書き戻しは現時点ではせず、MEM/WBへの指示として返す
+        """
+        # 命令タイプ: inst_fmt -> func
+        table: Dict[
+            InstFmt,
+            Callable[[MemSpace.AbstAddrType, MemSpace.AbstDataType], "ExecResult"],
+        ] = {
+            InstFmt.R: cls._execute_r,
+            # InstFmt.I: cls._decode_i,
+            # InstFmt.S: cls._decode_s,
+            # InstFmt.B: cls._decode_b,
+            # InstFmt.U_LUI: cls._decode_u,
+            # InstFmt.U_AUIPC: cls._decode_u,
+            # InstFmt.J_JAL: cls._decode_j,
+            # InstFmt.R_ATOMIC: cls._decode_r_atomic,
+            # TODO: Implement the floating point extension
+        }
+        dst = table.get(inst_data.inst_fmt, None)
+        if dst is not None:
+            return dst(inst_data, regs)
+        else:
+            assert False, f"Unknown instruction format: {inst_data=}"
+            return cls(
+                # TODO: impl
             )
 
 
@@ -543,22 +621,58 @@ class Core:
         1cyc分進める
         """
         # IF
-        inst_addr, inst_data = self._fetch_inst()
+        inst_addr, access_ret, inst_data = self._fetch_inst()
+        if access_ret != AccessResult.OK:
+            # 安定するまでは明らかに不具合だが、最終的にはCoreの例外として処理すべき内容
+            assert False, f"Fetch Error: {access_ret}"
+            raise RuntimeError(f"TODO: impl Exception Handler: {access_ret=}")
         # ID
         inst_data = self._decode_inst(inst_data)
+        if inst_data.inst_type == InstType.DEBUG_UNDEFINED:
+            # 安定するまでは不正命令のFetchは止めるべきだが、最終的にはCoreの例外として処理すべき内容
+            assert False, "Undefined instruction"
+            raise NotImplementedError("TODO: impl Exception Handler")
         # EX
+        if inst_data.inst_fmt == InstFmt.R:
+            rs1 = self.regs.read(inst_data.rs1)
+            rs2 = self.regs.read(inst_data.rs2)
+            if inst_data.inst_type == InstType.ADD:
+                rd = rs1 + rs2
+            elif inst_data.inst_type == InstType.SUB:
+                rd = rs1 - rs2
+            elif inst_data.inst_type == InstType.SLL:
+                rd = rs1 << rs2
+            elif inst_data.inst_type == InstType.SLT:
+                rd = rs1 < rs2
+            elif inst_data.inst_type == InstType.SLTU:
+                rd = rs1 < rs2
+            elif inst_data.inst_type == InstType.XOR:
+                rd = rs1 ^ rs2
+            elif inst_data.inst_type == InstType.SRL:
+                rd = rs1 >> rs2
+            elif inst_data.inst_type == InstType.SRA:
+                rd = rs1 >> rs2
+            elif inst_data.inst_type == InstType.OR:
+                rd = rs1 | rs2
+            elif inst_data.inst_type == InstType.AND:
+                rd = rs1 & rs2
+            else:
+                assert False, f"Unknown instruction: {inst_data.inst_type=}"
+                raise NotImplementedError("TODO: impl Exception Handler")
         # MEM
         # WB
 
-    def _fetch_inst(self) -> (MemSpace.AbstAddrType, MemSpace.AbstDataType):
+    def _fetch_inst(
+        self,
+    ) -> Tuple[MemSpace.AbstAddrType, AccessResult, MemSpace.AbstDataType]:
         """
         命令データを取得
         """
         inst_addr = self.pc
-        inst_data = self.slave.read(inst_addr)
-        return inst_addr, inst_data
+        accsess_ret, inst_data = self.slave.read(inst_addr)
+        return inst_addr, accsess_ret, inst_data
 
-    def _decode_inst(self, inst_data: MemSpace.AbstDataType) -> MemSpace.AbstDataType:
+    def _decode_inst(self, inst_data: MemSpace.AbstDataType) -> InstData:
         """
         命令をデコード
         """
