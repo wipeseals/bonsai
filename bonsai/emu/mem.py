@@ -487,9 +487,17 @@ class UartModule(MemMappedRegModule):
         space: MemSpace,
         name: str,
         log_file_path: str | None = None,
+        pre_stdin: List[str] | None = None,
     ):
-        self._log_file_path = log_file_path
+        # stdin事前入力
+        self._pre_stdin = pre_stdin
+        self._pre_stdin_idx: int | None = (
+            0 if pre_stdin is not None and len(pre_stdin) > 0 else None
+        )
+        # ログ出力保持
+        self._stdout: List[str] = []
         # ログファイルが存在していたら一旦削除
+        self._log_file_path = log_file_path
         if self._log_file_path is not None:
             with open(self._log_file_path, "w"):
                 pass
@@ -510,6 +518,13 @@ class UartModule(MemMappedRegModule):
             return AccessResult.OK, 1
         elif reg_idx == UartModule.RegIdx.RX_DATA:
             # RX_DATA: read from stdin
+            # 事前設定されたstdinを使う
+            if self._pre_stdin_idx is not None:
+                if self._pre_stdin_idx < len(self._pre_stdin):
+                    ret = ord(self._pre_stdin[self._pre_stdin_idx])
+                    self._pre_stdin_idx += 1
+                    return AccessResult.OK, ret
+            # 事前設定されたstdinがない場合は、入力を待つ
             return AccessResult.OK, input()
         elif reg_idx == UartModule.RegIdx.TX_FULL:
             # TX_FULL: always not full
@@ -537,10 +552,12 @@ class UartModule(MemMappedRegModule):
             return AccessResult.ERROR_UNSUPPORTED
         elif reg_idx == UartModule.RegIdx.TX_DATA:
             # TX_DATA: write to stdout
-            print(chr(data), end="")
+            char = chr(data)
+            self._stdout.append(char)
+            print(char, end="")
             if self._log_file_path is not None:
                 with open(self._log_file_path, "a") as f:
-                    f.write(chr(data))
+                    f.write(char)
             return AccessResult.OK
         else:
             assert False, f"Invalid register index: {reg_idx}"

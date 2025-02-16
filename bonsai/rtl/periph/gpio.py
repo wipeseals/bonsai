@@ -1,8 +1,7 @@
 from amaranth import Module, Signal
 from amaranth.build.plat import Platform
-from amaranth.lib import enum, wiring
+from amaranth.lib import wiring
 from amaranth.lib.wiring import In, Out
-from amaranth.utils import ceil_log2
 
 
 class Gpo(wiring.Component):
