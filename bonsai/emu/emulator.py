@@ -38,23 +38,21 @@ class Emulator:
         )
 
         # Main Bus
-        ram_start_addr = 0x8000_0000
-        uart_start_addr = 0x0100_0000
         bus0 = BusArbiter(
             space=mem_space,
             name="bus0",
             entries=[
                 # RAM
-                BusArbiterEntry(slave=ram0, start_addr=ram_start_addr),
+                BusArbiterEntry(slave=ram0, start_addr=args.ram_start_addr),
                 # Peripherals
-                BusArbiterEntry(slave=uart0, start_addr=uart_start_addr),
+                BusArbiterEntry(slave=uart0, start_addr=args.uart_start_addr),
             ],
         )
         print(bus0)
         # test print uart
         for c in "Hello, World!\n":
             bus0.write32(
-                uart_start_addr
+                args.uart_start_addr
                 + (UartModule.RegIdx.TX_DATA * mem_space.num_data_bytes),
                 ord(c),
             )
@@ -77,6 +75,18 @@ class Emulator:
             type=int,
             default=32,
             help="Set the data width",
+        )
+        parser.add_argument(
+            "--ram_start_addr",
+            type=int,
+            default=0x8000_0000,
+            help="Set the start address of the RAM",
+        )
+        parser.add_argument(
+            "--uart_start_addr",
+            type=int,
+            default=0x0100_0000,
+            help="Set the start address of the UART",
         )
         parser.add_argument(
             "--program-binary-path",
