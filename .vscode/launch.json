@@ -23,7 +23,6 @@
             "type": "pickString",
             "description": "Select the platform",
             "options": [
-                "arty",
                 "tangnano9k"
             ],
             "default": "tangnano9k"

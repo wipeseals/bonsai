@@ -6,8 +6,9 @@ import pytest
 from amaranth import ClockDomain, Module
 from amaranth.sim import SimulatorContext
 
-from bonsai.periph.uart import UartConfig, UartParity, UartRx, UartTx
-from bonsai.util import Simulation, even_parity, odd_parity
+from bonsai.rtl.calc import Calc
+from bonsai.rtl.periph.uart import UartConfig, UartParity, UartRx, UartTx
+from bonsai.sim.simulator import RtlSim
 
 MIN_TEST_CASE: List[UartConfig] = [
     UartConfig(
@@ -117,9 +118,9 @@ def test_uart_loopback(config: UartConfig):
                         recv_period_counter = period_count
                 elif recv_state == "PARITY":
                     expect_parity = (
-                        odd_parity(recv_data, config.num_data_bit)
+                        Calc.odd_parity(recv_data, config.num_data_bit)
                         if config.parity == UartParity.ODD
-                        else even_parity(recv_data, config.num_data_bit)
+                        else Calc.even_parity(recv_data, config.num_data_bit)
                     )
                     logging.debug(
                         f"[DUT_TX][{cyc_counter}] parity bit: {expect_parity} (expect {tx_value})"
@@ -166,9 +167,9 @@ def test_uart_loopback(config: UartConfig):
             # パリティビット送信
             if config.parity != UartParity.NONE:
                 expect_parity = (
-                    odd_parity(expect_data, config.num_data_bit)
+                    Calc.odd_parity(expect_data, config.num_data_bit)
                     if config.parity == UartParity.ODD
-                    else even_parity(expect_data, config.num_data_bit)
+                    else Calc.even_parity(expect_data, config.num_data_bit)
                 )
                 ctx.set(uart_rx.rx, expect_parity)
                 logging.debug(f"[DUT_RX] parity bit: {expect_parity}")
@@ -183,7 +184,7 @@ def test_uart_loopback(config: UartConfig):
                     "[DUT_RX] parity error state error"
                 )
 
-    Simulation.run(
+    RtlSim.run(
         name=f"{test_uart_loopback.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench_mosi,
@@ -230,9 +231,9 @@ def test_uart_rx(config: UartConfig):
             # パリティビット送信
             if config.parity != UartParity.NONE:
                 expect_parity = (
-                    odd_parity(expect_data, config.num_data_bit)
+                    Calc.odd_parity(expect_data, config.num_data_bit)
                     if config.parity == UartParity.ODD
-                    else even_parity(expect_data, config.num_data_bit)
+                    else Calc.even_parity(expect_data, config.num_data_bit)
                 )
                 ctx.set(dut.rx, expect_parity)
                 logging.debug(f"parity bit: {expect_parity}")
@@ -260,7 +261,7 @@ def test_uart_rx(config: UartConfig):
             assert ctx.get(dut.stream.valid) == 0, "stream valid state error"
             ctx.set(dut.stream.ready, 0)
 
-    Simulation.run(
+    RtlSim.run(
         name=f"{test_uart_rx.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench,
@@ -327,9 +328,9 @@ def test_uart_tx(config: UartConfig):
             if config.parity != UartParity.NONE:
                 current_bit = ctx.get(dut.tx)
                 expect_parity = (
-                    odd_parity(read_data, config.num_data_bit)
+                    Calc.odd_parity(read_data, config.num_data_bit)
                     if config.parity == UartParity.ODD
-                    else even_parity(read_data, config.num_data_bit)
+                    else Calc.even_parity(read_data, config.num_data_bit)
                 )
                 logging.debug(
                     f"parity bit: expect {expect_parity}, actual {current_bit}"
@@ -345,7 +346,7 @@ def test_uart_tx(config: UartConfig):
                 assert ctx.get(dut.tx) == 1, "stop bit error"
                 await ctx.tick().repeat(period_count)
 
-    Simulation.run(
+    RtlSim.run(
         name=f"{test_uart_tx.__name__}_baudrate{config.baud_rate}_num_data_bit{config.num_data_bit}_num_stop_bit{config.num_stop_bit}_parity{config.parity}",
         dut=dut,
         testbench=bench,

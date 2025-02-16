@@ -2,27 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "build",
+            "label": "build (win)",
             "type": "shell",
-            "command": "task run build",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": [
-                "$python"
-            ]
-        },
-        {
-            "label": "run arty",
-            "type": "shell",
-            "command": "task run build --platform arty",
+            "command": "environment && task run build",
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -143,6 +125,12 @@
             "label": "draw diagram from verilog (win)",
             "type": "shell",
             "command": "environment.bat && cd dist && yosys -p \"read_verilog -sv ${file}; proc; opt; clean; show -format png -colors 2 -prefix ${fileBasenameNoExtension}\"",
+            "problemMatcher": []
+        }
+        {
+            "label": "rtlil to verilog (win)",
+            "type": "shell",
+            "command": "environment.bat && cd dist && yosys -p \"read_rtlil ${file}; proc; opt; clean; write_verilog ${file}.v;\"",
             "problemMatcher": []
         }
     ]
