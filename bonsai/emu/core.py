@@ -213,7 +213,7 @@ class InstData:
             return InstFmt.DEBUG_UNDEFINED
 
     @classmethod
-    def _sign_ext(
+    def sign_ext(
         cls, data: MemSpace.AbstDataType, bit_width: int
     ) -> MemSpace.AbstDataSignedType:
         """
@@ -280,7 +280,7 @@ class InstData:
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
         funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
         imm = (inst_data >> 20) & 0xFFF  # Extract bits 31-20 for imm[11:0]
-        imm_se = cls._sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
+        imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
         # funct3 -> inst_type
         table: Dict[int, InstType] = {
             0b000: InstType.ADDI,
@@ -320,7 +320,7 @@ class InstData:
         imm = ((inst_data >> 25) & 0x7F) << 5 | (
             (inst_data >> 7) & 0x1F
         ) << 0  # Extract bits 31-25 and 11-7 for imm[11:0]
-        imm_se = cls._sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
+        imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
         # funct3 -> inst_type
         table: Dict[int, InstType] = {
             0b000: InstType.SB,
@@ -358,7 +358,7 @@ class InstData:
             | ((inst_data >> 25) & 0x3F) << 5  # Extract bits 30-25 for imm[10:5]
             | ((inst_data >> 8) & 0xF) << 1  # Extract bits 11-8 for imm[4:1]
         )
-        imm_se = cls._sign_ext(imm, 13)  # Sign extend the immediate value to 13 bits
+        imm_se = cls.sign_ext(imm, 13)  # Sign extend the immediate value to 13 bits
         # funct3 -> inst_type
         table: Dict[int, InstType] = {
             0b000: InstType.BEQ,
@@ -392,7 +392,7 @@ class InstData:
         opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
         imm = (inst_data >> 12) & 0xFFFFF  # Extract bits 31-12 for imm[31:12]
-        imm_se = cls._sign_ext(imm, 20)  # Sign extend the immediate value to 20 bits
+        imm_se = cls.sign_ext(imm, 20)  # Sign extend the immediate value to 20 bits
         # opcode -> inst_type
         table: Dict[int, InstType] = {
             0b0110111: InstType.LUI,
@@ -425,7 +425,7 @@ class InstData:
             | ((inst_data >> 20) & 0x1) << 11  # Extract bit 20 for imm[11]
             | ((inst_data >> 21) & 0x3FF) << 1  # Extract bits 30-21 for imm[10:1]
         )
-        imm_se = cls._sign_ext(imm, 21)  # Sign extend the immediate value to 21 bits
+        imm_se = cls.sign_ext(imm, 21)  # Sign extend the immediate value to 21 bits
         # opcode -> inst_type
         table: Dict[int, InstType] = {
             0b1101111: InstType.JAL,
@@ -530,47 +530,65 @@ class ExecResult:
     EX stageの結果
     """
 
+    # rdへの書き戻しがあれば値をいれる
+    write_rd_from_alu: MemSpace.AbstDataType | None = None
+    # メモリからデータ取得が必要であればアドレスをいれる
+    # addr -> reg_addr
+    write_rd_from_mem: Tuple[MemSpace.AbstAddrType, int] | None = None
+    # メモリへの書き込みが必要であればアドレスとデータをいれる
+    # addr -> data
+    write_mem_from_alu: Tuple[MemSpace.AbstAddrType, MemSpace.AbstDataType] | None = (
+        None
+    )
+    # PCの更新が必要であればアドレスをいれる
+    write_pc: MemSpace.AbstAddrType | None = None
+    # TODO: ecall/ebreakなどの例外が発生した場合の処理を追加
+
+    @classmethod
     def _execute_r(
-        self,
-        rs1_data: MemSpace.AbstDataType,
-        rs2_data: MemSpace.AbstDataType,
+        cls,
+        inst_data: InstData,
+        regs: RegFile,
         reg_bit_width: int,
     ) -> MemSpace.AbstDataType:
         """
         Execute R-Type instruction
         """
+        # resouce
+        rs1_data = regs.read(inst_data.rs1)
+        rs2_data = regs.read(inst_data.rs2)
+        rs1_data_se = inst_data.sign_ext(rs1_data, reg_bit_width)
+        rs2_data_se = inst_data.sign_ext(rs2_data, reg_bit_width)
         rd_data = 0
-        if self.inst_type == InstType.ADD:
-            rd_data = rs1_data + rs2_data
-        elif self.inst_type == InstType.SUB:
-            rd_data = rs1_data - rs2_data
-        elif self.inst_type == InstType.SLL:
-            rd_data = rs1_data << rs2_data
-        elif self.inst_type == InstType.SLT:
-            rs1_data_se = self._sign_ext(rs1_data, reg_bit_width)
-            rs2_data_se = self._sign_ext(rs2_data, reg_bit_width)
-            rd_data = 1 if rs1_data_se < rs2_data_se else 0
-        elif self.inst_type == InstType.SLTU:
-            rd_data = 1 if rs1_data < rs2_data else 0
-        elif self.inst_type == InstType.XOR:
-            rd_data = rs1_data ^ rs2_data
-        elif self.inst_type == InstType.SRL:
-            rd_data = rs1_data >> rs2_data
-        elif self.inst_type == InstType.SRA:
-            rd_data = rs1_data >> rs2_data
-        elif self.inst_type == InstType.OR:
-            rd_data = rs1_data | rs2_data
-        elif self.inst_type == InstType.AND:
-            rd_data = rs1_data & rs2_data
+        # 命令ごと分岐: inst_type -> func[[] -> rd_data]
+        table: Dict[
+            InstType,
+            Callable[MemSpace.AbstDataType],
+        ] = {
+            InstType.ADD: lambda: rs1_data_se + rs2_data_se,
+            InstType.SUB: lambda: rs1_data_se - rs2_data_se,
+            InstType.SLL: lambda: rs1_data_se << rs2_data_se,
+            InstType.SLT: lambda: rs1_data_se < rs2_data_se,
+            InstType.SLTU: lambda: rs1_data < rs2_data,
+            InstType.XOR: lambda: rs1_data ^ rs2_data,
+            InstType.SRL: lambda: rs1_data >> rs2_data,
+            InstType.SRA: lambda: rs1_data_se >> rs2_data,
+            InstType.OR: lambda: rs1_data | rs2_data,
+            InstType.AND: lambda: rs1_data & rs2_data,
+        }
+        if inst_data.inst_type in table:
+            rd_data = table[inst_data.inst_type]()
+            # shiftrやaddで超えるケースがあるので対策
+            rd_data &= (1 << reg_bit_width) - 1
+            return rd_data
         else:
-            assert False, f"Unknown instruction: {self.inst_type=}"
-            pass
-        # shiftrやaddで超えるケースがあるので対策
-        rd_data &= (1 << reg_bit_width) - 1
-        return rd_data
+            # Decodeできていればここには来ないはず
+            raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
 
     @classmethod
-    def execute(cls, inst_data: InstData, regs: RegFile) -> "ExecResult":
+    def execute(
+        cls, inst_data: InstData, regs: RegFile, reg_bit_width: int
+    ) -> "ExecResult":
         """
         execute stage: Decodeした結果とPC(inst_dataに内包)/Reg値から命令を実行
         Reg/Memの書き戻しは現時点ではせず、MEM/WBへの指示として返す
@@ -578,7 +596,7 @@ class ExecResult:
         # 命令タイプ: inst_fmt -> func
         table: Dict[
             InstFmt,
-            Callable[[MemSpace.AbstAddrType, MemSpace.AbstDataType], "ExecResult"],
+            Callable[[InstData, RegFile, int], "ExecResult"],
         ] = {
             InstFmt.R: cls._execute_r,
             # InstFmt.I: cls._decode_i,
@@ -592,7 +610,8 @@ class ExecResult:
         }
         dst = table.get(inst_data.inst_fmt, None)
         if dst is not None:
-            return dst(inst_data, regs)
+            # reg_bit_width は Compressed Extension がある場合に動的に切り替わるのでMemSpace直参照しない
+            return dst(inst_data, regs, reg_bit_width)
         else:
             assert False, f"Unknown instruction format: {inst_data=}"
             return cls(
