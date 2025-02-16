@@ -2,7 +2,7 @@ import enum
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import auto
-from typing import List, Literal, TypeVar
+from typing import List, Literal, Optional, Tuple, TypeVar
 
 import numpy as np
 
@@ -29,6 +29,22 @@ class MemSpace:
         else:
             raise ValueError(f"Unsupported bit width: {bit_width}")
 
+    @staticmethod
+    def unsigned_to_signed(unsigned_type: TypeVar) -> TypeVar:
+        """
+        Convert unsigned type to signed type
+        """
+        if unsigned_type == np.uint8:
+            return np.int8
+        elif unsigned_type == np.uint16:
+            return np.int16
+        elif unsigned_type == np.uint32:
+            return np.int32
+        elif unsigned_type == np.uint64:
+            return np.int64
+        else:
+            raise ValueError(f"Unsupported unsigned type: {unsigned_type}")
+
     def __init__(
         self,
         addr_bits: int = 32,
@@ -40,12 +56,16 @@ class MemSpace:
         self.num_data_bytes = data_bits // 8
         self.AddrType = MemSpace.bit_to_type(addr_bits)
         self.DataType = MemSpace.bit_to_type(data_bits)
+        self.DataSignedType = MemSpace.unsigned_to_signed(self.DataType)
         self.ByteEnType = MemSpace.bit_to_type(data_bits // 8)
 
     # インスタンス化前にアドレス、データの方が欲しい時用
-    AbstAddrType = TypeVar("AddrType", np.uint16, np.uint32, np.uint64)
-    AbstDataType = TypeVar("DataType", np.uint16, np.uint32, np.uint64)
-    AbstByteEnType = TypeVar("ByteEnType", np.uint16, np.uint32, np.uint64)
+    AbstAddrType = TypeVar("AddrType", np.uint8, np.uint16, np.uint32, np.uint64)
+    AbstDataType = TypeVar("DataType", np.uint8, np.uint16, np.uint32, np.uint64)
+    AbstDataSignedType = TypeVar(
+        "DataSignedType", np.int8, np.int16, np.int32, np.int64
+    )
+    AbstByteEnType = TypeVar("ByteEnType", np.uint8, np.uint16, np.uint32, np.uint64)
 
 
 class AccessType(enum.Enum):
@@ -396,7 +416,9 @@ class MemMappedRegModule(BusSlave, ABC):
         return self.write(addr=addr, data=data, access_type=access_type)
 
     @abstractmethod
-    def on_read_reg(self, reg_idx: int) -> (AccessResult, MemSpace.AbstDataType) | None:
+    def on_read_reg(
+        self, reg_idx: int
+    ) -> Optional[Tuple[AccessResult, MemSpace.AbstDataType]]:
         """
         レジスタ値Readが発生したときに呼び出し。以下の用途を想定
         戻り値の想定:
@@ -508,7 +530,9 @@ class UartModule(MemMappedRegModule):
     def size(self) -> int:
         return super().size()
 
-    def on_read_reg(self, reg_idx: int) -> (AccessResult, MemSpace.AbstDataType) | None:
+    def on_read_reg(
+        self, reg_idx: int
+    ) -> Optional[Tuple[AccessResult, MemSpace.AbstDataType]]:
         if reg_idx == UartModule.RegIdx.RX_VALID:
             # RX_VALID: always valid
             return AccessResult.OK, 1
