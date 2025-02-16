@@ -620,6 +620,7 @@ class ExecResult:
             InstType,
             Callable[MemSpace.AbstDataType],
         ] = {
+            # Base Integer
             InstType.ADD: lambda: rs1_data_se + rs2_data_se,
             InstType.SUB: lambda: rs1_data_se - rs2_data_se,
             InstType.XOR: lambda: rs1_data ^ rs2_data,
@@ -630,15 +631,24 @@ class ExecResult:
             InstType.SRA: lambda: rs1_data_se >> rs2_data,
             InstType.SLT: lambda: rs1_data_se < rs2_data_se,
             InstType.SLTU: lambda: rs1_data < rs2_data,
+            # Multiply Extension
+            InstType.MUL: lambda: rs1_data_se * rs2_data_se,
+            InstType.MULH: lambda: rs1_data_se * rs2_data_se >> reg_bit_width,
+            InstType.MULSU: lambda: (rs1_data * rs2_data_se) >> reg_bit_width,
+            InstType.MULU: lambda: (rs1_data * rs2_data) >> reg_bit_width,
+            InstType.DIV: lambda: rs1_data_se // rs2_data_se,
+            InstType.DIVU: lambda: rs1_data // rs2_data,
+            InstType.REM: lambda: rs1_data_se % rs2_data_se,
+            InstType.REMU: lambda: rs1_data % rs2_data,
         }
-        if inst_data.inst_type in table:
-            rd_data = table[inst_data.inst_type]()
-            # shiftrやaddで超えるケースがあるので対策
-            rd_data &= (1 << reg_bit_width) - 1
-            return rd_data
-        else:
-            # Decodeできていればここには来ないはず
+        # Decodeできていればここには来ないはず
+        if inst_data.inst_type not in table:
             raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
+
+        rd_data = table[inst_data.inst_type]()
+        # shiftrやaddで超えるケースがあるのでmask
+        rd_data &= (1 << reg_bit_width) - 1
+        return rd_data
 
     def _execute_i(
         cls,
@@ -660,20 +670,22 @@ class ExecResult:
         ] = {
             InstType.ADDI: lambda: rs1_data_se + inst_data.imm_se,
             InstType.XORI: lambda: rs1_data ^ inst_data.imm,
-            InstType.SLLI: lambda: rs1_data_se << inst_data.imm,
-            InstType.SLTI: lambda: rs1_data_se < inst_data.imm_se,
-            InstType.SLTIU: lambda: rs1_data < inst_data.imm,
             InstType.ORI: lambda: rs1_data | inst_data.imm,
             InstType.ANDI: lambda: rs1_data & inst_data.imm,
+            InstType.SLLI: lambda: rs1_data_se << inst_data.imm_lower,
+            InstType.SRLI: lambda: rs1_data >> inst_data.imm_lower,
+            InstType.SRAI: lambda: rs1_data_se >> inst_data.imm_lower,
+            InstType.SLTI: lambda: rs1_data_se < inst_data.imm_se,
+            InstType.SLTIU: lambda: rs1_data < inst_data.imm,
         }
-        if inst_data.inst_type in table:
-            rd_data = table[inst_data.inst_type]()
-            # shiftrやaddで超えるケースがあるので対策
-            rd_data &= (1 << reg_bit_width) - 1
-            return rd_data
-        else:
-            # Decodeできていればここには来ないはず
+        # Decodeできていればここには来ないはず
+        if inst_data.inst_type not in table:
             raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
+
+        rd_data = table[inst_data.inst_type]()
+        # shiftrやaddで超えるケースがあるのでmask
+        rd_data &= (1 << reg_bit_width) - 1
+        return rd_data
 
     @classmethod
     def execute(
@@ -689,6 +701,7 @@ class ExecResult:
             Callable[[InstData, RegFile, int], "ExecResult"],
         ] = {
             InstFmt.R: cls._execute_r,
+            InstFmt.I: cls._execute_i,
             # InstFmt.I: cls._decode_i,
             # InstFmt.S: cls._decode_s,
             # InstFmt.B: cls._decode_b,
