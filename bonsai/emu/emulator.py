@@ -1,13 +1,93 @@
 import argparse
+from pathlib import Path
+
+from bonsai.emu.mem import BusArbiter, BusArbiterEntry, FixSizeRam, MemSpace, UartModule
 
 
 class Emulator:
-    @staticmethod
-    def setup_parser(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    @classmethod
+    def create_dst_path(cls, file_name: str, dist_file_dir: str) -> str:
+        """
+        Get the path of the generated file
+        """
+        Path(dist_file_dir).mkdir(parents=True, exist_ok=True)
+        return str(Path(dist_file_dir) / file_name)
+
+    @classmethod
+    def run(cls, args: argparse.Namespace) -> None:
+        """
+        Run the emulator
+        """
+
+        mem_space = MemSpace(addr_bits=args.addr_width, data_bits=args.data_width)
+        uart0 = UartModule(
+            space=mem_space,
+            name="uart0",
+            log_file_path=cls.create_dst_path("uart0.log", args.dist_file_dir),
+        )
+
+        # Main Program Memory
+        program_data = (
+            Path(args.program_binary_path).read_bytes()
+            if args.program_binary_path
+            else b""
+        )
+        program_size = min(len(program_data), 4096)  # min 4KiB
+        ram0 = FixSizeRam(
+            space=mem_space, name="ram0", size=program_size, init_data=program_data
+        )
+
+        # Main Bus
+        ram_start_addr = 0x8000_0000
+        uart_start_addr = 0x0100_0000
+        bus0 = BusArbiter(
+            space=mem_space,
+            name="bus0",
+            entries=[
+                # RAM
+                BusArbiterEntry(slave=ram0, start_addr=ram_start_addr),
+                # Peripherals
+                BusArbiterEntry(slave=uart0, start_addr=uart_start_addr),
+            ],
+        )
+        print(bus0)
+        # test print uart
+        for c in "Hello, World!\n":
+            bus0.write32(
+                uart_start_addr
+                + (UartModule.RegIdx.TX_DATA * mem_space.num_data_bytes),
+                ord(c),
+            )
+
+        # TODO: Implement the emulator
+
+    @classmethod
+    def setup_parser(cls, parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         """
         Add the build command to the parser
         """
-        parser.set_defaults(
-            func=lambda args: print("This feature is not yet implemented.")
+        parser.add_argument(
+            "--addr-width",
+            type=int,
+            default=32,
+            help="Set the address width",
         )
+        parser.add_argument(
+            "--data-width",
+            type=int,
+            default=32,
+            help="Set the data width",
+        )
+        parser.add_argument(
+            "--program-binary-path",
+            type=str,
+            help="Set the path to the program binary",
+        )
+
+        parser.add_argument(
+            "--dist-file-dir",
+            default="dist_emu",
+            help="Set the directory for emulator output files",
+        )
+        parser.set_defaults(func=cls.run)
         return parser
