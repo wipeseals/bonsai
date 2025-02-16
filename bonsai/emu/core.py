@@ -61,15 +61,29 @@ class InstFmt(enum.IntEnum):
 
     # Emulator Only (Undefined)
     DEBUG_UNDEFINED = 0
-    # opcodeごとかつ解釈が異なるタイプごとに定義
+    # Register:
+    # - Arithmetic (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
+    # - Multiply (MUL, MULH, MULHSU, MULU, DIV, DIVU, REM, REMU)
     R = 0b0110011
+    # Immediate:
+    # - Arithmetic (ADDI, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
+    # - Load (LB, LH, LW, LBU, LHU)
     I = 0b0010011
+    # Store(SB, SH, SW)
     S = 0b0100011
+    # Branch(BEQ, BNE, BLT, BGE, BLTU, BGEU)
     B = 0b1100011
+    # Load Upper Immediate
     U_LUI = 0b0110111
+    # Add Upper Immediate to PC
     U_AUIPC = 0b0010111
+    # Jump And Link
     J_JAL = 0b1101111
+    # Jump And Link Register
     J_JALR = 0b1100111
+    # Environment Call/Break
+    I_ENV = 0b1110011
+    # Atomic Extension
     R_ATOMIC = 0b0101111
 
 
@@ -132,8 +146,8 @@ class InstType(enum.Enum):
     # Multiply Extension R-Type Instructions
     MUL = enum.auto()
     MULH = enum.auto()
-    MULHSU = enum.auto()
-    MULHU = enum.auto()
+    MULSU = enum.auto()
+    MULU = enum.auto()
     DIV = enum.auto()
     DIVU = enum.auto()
     REM = enum.auto()
@@ -240,14 +254,15 @@ class InstData:
         funct7 = (inst_data >> 25) & 0x7F  # Extract bits 31-25 for funct7
         # funct3 -> (funct7 -> inst_type)
         table: Dict[int, Dict[int, InstType]] = {
-            0b000: {0b0000000: InstType.ADD, 0b0100000: InstType.SUB},
-            0b001: {0b0000000: InstType.SLL},
-            0b010: {0b0000000: InstType.SLT},
-            0b011: {0b0000000: InstType.SLTU},
-            0b100: {0b0000000: InstType.XOR},
-            0b101: {0b0000000: InstType.SRL, 0b0100000: InstType.SRA},
-            0b110: {0b0000000: InstType.OR},
-            0b111: {0b0000000: InstType.AND},
+            # Base Integer + Multiply Extension
+            0x0: {0x00: InstType.ADD, 0x20: InstType.SUB, 0x01: InstType.MUL},
+            0x4: {0x00: InstType.XOR, 0x01: InstType.DIV},
+            0x6: {0x00: InstType.OR, 0x01: InstType.REM},
+            0x7: {0x00: InstType.AND, 0x01: InstType.REMU},
+            0x1: {0x00: InstType.SLL, 0x01: InstType.MULH},
+            0x5: {0x00: InstType.SRL, 0x20: InstType.SRA, 0x01: InstType.DIVU},
+            0x2: {0x00: InstType.SLT, 0x01: InstType.MULSU},
+            0x3: {0x00: InstType.SLTU, 0x01: InstType.MULU},
         }
         inst_type = InstType.DEBUG_UNDEFINED
         if funct3 in table and funct7 in table[funct3]:
@@ -281,15 +296,20 @@ class InstData:
         funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
         imm = (inst_data >> 20) & 0xFFF  # Extract bits 31-20 for imm[11:0]
         imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
-        # funct3 -> inst_type
-        table: Dict[int, InstType] = {
-            0b000: InstType.ADDI,
-            0b001: InstType.SLLI,
-            0b010: InstType.SLTI,
-            0b011: InstType.SLTIU,
-            0b100: InstType.XORI,
-            0b110: InstType.ORI,
-            0b111: InstType.ANDI,
+        imm_lower = imm & 0x1F  # Extract bits 4-0 for imm[4:0]
+        imm_upper = (imm & 0x7FF) >> 5  # Extract bits 11-5 for imm[11:5]
+        # funct3 -> (imm[11:0] -> inst_type)
+        table: Dict[int, Callable[InstType]] = {
+            0x0: lambda: InstType.ADDI,
+            0x4: lambda: InstType.XORI,
+            0x6: lambda: InstType.ORI,
+            0x7: lambda: InstType.ANDI,
+            # SLLI は imm[11] で判定
+            0x1: lambda: InstType.SLLI if imm_upper == 0 else InstType.DEBUG_UNDEFINED,
+            # SRLI/SRAI は imm[11] で判定
+            0x5: lambda: InstType.SRLI if imm_upper == 0 else InstType.SRAI,
+            0x2: lambda: InstType.SLTI,
+            0x3: lambda: InstType.SLTIU,
         }
         inst_type = table[funct3]
 
@@ -323,9 +343,9 @@ class InstData:
         imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
         # funct3 -> inst_type
         table: Dict[int, InstType] = {
-            0b000: InstType.SB,
-            0b001: InstType.SH,
-            0b010: InstType.SW,
+            0x0: InstType.SB,
+            0x1: InstType.SH,
+            0x2: InstType.SW,
         }
         inst_type = table[funct3]
 
@@ -361,12 +381,12 @@ class InstData:
         imm_se = cls.sign_ext(imm, 13)  # Sign extend the immediate value to 13 bits
         # funct3 -> inst_type
         table: Dict[int, InstType] = {
-            0b000: InstType.BEQ,
-            0b001: InstType.BNE,
-            0b100: InstType.BLT,
-            0b101: InstType.BGE,
-            0b110: InstType.BLTU,
-            0b111: InstType.BGEU,
+            0x0: InstType.BEQ,
+            0x1: InstType.BNE,
+            0x4: InstType.BLT,
+            0x5: InstType.BGE,
+            0x6: InstType.BLTU,
+            0x7: InstType.BGEU,
         }
         inst_type = table[funct3]
 
@@ -443,6 +463,39 @@ class InstData:
         )
 
     @classmethod
+    def _decode_i_env(
+        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+    ) -> "InstData":
+        """
+        I-Type (Immediate Type) for Environment Call/Break Decoder
+        | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
+        """
+        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
+        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
+        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
+        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
+        imm = (inst_data >> 20) & 0xFFF  # Extract bits 31-20 for imm[11:0]
+        imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
+        # imm -> inst_type
+        table: Dict[int, InstType] = {
+            0x000: InstType.ECALL,
+            0x001: InstType.EBREAK,
+        }
+        inst_type = table[imm]
+
+        return cls(
+            inst_addr=inst_addr,
+            inst_data=inst_data,
+            inst_fmt=InstFmt.I_ENV,
+            inst_type=inst_type,
+            rs1=rs1,
+            rd=rd,
+            funct3=funct3,
+            imm=imm,
+            imm_se=imm_se,
+        )
+
+    @classmethod
     def _decode_r_atomic(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
     ) -> "InstData":
@@ -505,9 +558,11 @@ class InstData:
             InstFmt.I: cls._decode_i,
             InstFmt.S: cls._decode_s,
             InstFmt.B: cls._decode_b,
+            InstFmt.J_JAL: cls._decode_j,
+            InstFmt.J_JALR: cls._decode_i,
             InstFmt.U_LUI: cls._decode_u,
             InstFmt.U_AUIPC: cls._decode_u,
-            InstFmt.J_JAL: cls._decode_j,
+            InstFmt.I_ENV: cls._decode_i_env,
             InstFmt.R_ATOMIC: cls._decode_r_atomic,
             # TODO: Implement the floating point extension
         }
@@ -567,14 +622,49 @@ class ExecResult:
         ] = {
             InstType.ADD: lambda: rs1_data_se + rs2_data_se,
             InstType.SUB: lambda: rs1_data_se - rs2_data_se,
-            InstType.SLL: lambda: rs1_data_se << rs2_data_se,
-            InstType.SLT: lambda: rs1_data_se < rs2_data_se,
-            InstType.SLTU: lambda: rs1_data < rs2_data,
             InstType.XOR: lambda: rs1_data ^ rs2_data,
-            InstType.SRL: lambda: rs1_data >> rs2_data,
-            InstType.SRA: lambda: rs1_data_se >> rs2_data,
             InstType.OR: lambda: rs1_data | rs2_data,
             InstType.AND: lambda: rs1_data & rs2_data,
+            InstType.SLL: lambda: rs1_data_se << rs2_data_se,
+            InstType.SRL: lambda: rs1_data >> rs2_data,
+            InstType.SRA: lambda: rs1_data_se >> rs2_data,
+            InstType.SLT: lambda: rs1_data_se < rs2_data_se,
+            InstType.SLTU: lambda: rs1_data < rs2_data,
+        }
+        if inst_data.inst_type in table:
+            rd_data = table[inst_data.inst_type]()
+            # shiftrやaddで超えるケースがあるので対策
+            rd_data &= (1 << reg_bit_width) - 1
+            return rd_data
+        else:
+            # Decodeできていればここには来ないはず
+            raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
+
+    def _execute_i(
+        cls,
+        inst_data: InstData,
+        regs: RegFile,
+        reg_bit_width: int,
+    ) -> MemSpace.AbstDataType:
+        """
+        Execute I-Type instruction
+        """
+        # resouce
+        rs1_data = regs.read(inst_data.rs1)
+        rs1_data_se = inst_data.sign_ext(rs1_data, reg_bit_width)
+        rd_data = 0
+        # 命令ごと分岐: inst_type -> func[[] -> rd_data]
+        table: Dict[
+            InstType,
+            Callable[MemSpace.AbstDataType],
+        ] = {
+            InstType.ADDI: lambda: rs1_data_se + inst_data.imm_se,
+            InstType.XORI: lambda: rs1_data ^ inst_data.imm,
+            InstType.SLLI: lambda: rs1_data_se << inst_data.imm,
+            InstType.SLTI: lambda: rs1_data_se < inst_data.imm_se,
+            InstType.SLTIU: lambda: rs1_data < inst_data.imm,
+            InstType.ORI: lambda: rs1_data | inst_data.imm,
+            InstType.ANDI: lambda: rs1_data & inst_data.imm,
         }
         if inst_data.inst_type in table:
             rd_data = table[inst_data.inst_type]()
