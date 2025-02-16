@@ -9,6 +9,8 @@ dependencies = [
     "asyncio>=3.4.3",
     "taskipy>=1.14.1",
     "numpy>=2.2.3",
+    "rich>=13.9.4",
+    "textual>=1.0.0",
 ]
 dynamic = ["version"]
 
