@@ -712,14 +712,15 @@ class ExecResult:
             # TODO: Implement the floating point extension
         }
         dst = table.get(inst_data.inst_fmt, None)
-        if dst is not None:
-            # reg_bit_width は Compressed Extension がある場合に動的に切り替わるのでMemSpace直参照しない
-            return dst(inst_data, regs, reg_bit_width)
-        else:
-            assert False, f"Unknown instruction format: {inst_data=}"
-            return cls(
-                # TODO: impl
+
+        if dst is None:
+            # Decodeできていればここには来ないはず
+            raise NotImplementedError(
+                f"Unknown instruction format: {inst_data.inst_fmt=}"
             )
+
+        # reg_bit_width は Compressed Extension がある場合に動的に切り替わるのでMemSpace直参照せず、引数で受ける
+        return dst(inst_data, regs, reg_bit_width)
 
 
 class Core:
@@ -754,33 +755,8 @@ class Core:
             # 安定するまでは不正命令のFetchは止めるべきだが、最終的にはCoreの例外として処理すべき内容
             assert False, "Undefined instruction"
             raise NotImplementedError("TODO: impl Exception Handler")
-        # EX
-        if inst_data.inst_fmt == InstFmt.R:
-            rs1 = self.regs.read(inst_data.rs1)
-            rs2 = self.regs.read(inst_data.rs2)
-            if inst_data.inst_type == InstType.ADD:
-                rd = rs1 + rs2
-            elif inst_data.inst_type == InstType.SUB:
-                rd = rs1 - rs2
-            elif inst_data.inst_type == InstType.SLL:
-                rd = rs1 << rs2
-            elif inst_data.inst_type == InstType.SLT:
-                rd = rs1 < rs2
-            elif inst_data.inst_type == InstType.SLTU:
-                rd = rs1 < rs2
-            elif inst_data.inst_type == InstType.XOR:
-                rd = rs1 ^ rs2
-            elif inst_data.inst_type == InstType.SRL:
-                rd = rs1 >> rs2
-            elif inst_data.inst_type == InstType.SRA:
-                rd = rs1 >> rs2
-            elif inst_data.inst_type == InstType.OR:
-                rd = rs1 | rs2
-            elif inst_data.inst_type == InstType.AND:
-                rd = rs1 & rs2
-            else:
-                assert False, f"Unknown instruction: {inst_data.inst_type=}"
-                raise NotImplementedError("TODO: impl Exception Handler")
+        # EX: TODO: reg_bit_width は Compressed Extension がある場合に動的に切り替わるので、動的に変更できるようにする
+        ex_ret = ExecResult.execute(inst_data, self.regs, self.config.reg_bit_width)
         # MEM
         # WB
 
