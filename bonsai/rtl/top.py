@@ -27,11 +27,11 @@ from amaranth.lib.fifo import SyncFIFO
 from amaranth.lib.wiring import In, Out
 from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
-from periph.gpio import Gpi, Gpo
-from periph.spi import SpiConfig, SpiMaster
-from periph.timer import Timer, TimerMode
-from periph.uart import UartConfig, UartRx, UartTx
-from periph.video import VgaConfig, VgaOut
+from rtl.periph.gpio import Gpi, Gpo
+from rtl.periph.spi import SpiConfig, SpiMaster
+from rtl.periph.timer import Timer, TimerMode
+from rtl.periph.uart import UartConfig, UartRx, UartTx
+from rtl.periph.video import VgaConfig, VgaOut
 
 
 class Top(wiring.Component):

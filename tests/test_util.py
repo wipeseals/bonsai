@@ -1,6 +1,6 @@
 import pytest
 
-from bonsai.util import byte_width, is_power_of_2
+from bonsai.rtl.calc import Calc
 
 
 @pytest.mark.parametrize(
@@ -17,7 +17,7 @@ from bonsai.util import byte_width, is_power_of_2
     ],
 )
 def test_byte_width(src_width: int, expected_width: int):
-    assert byte_width(src_width) == expected_width
+    assert Calc.byte_width(src_width) == expected_width
 
 
 @pytest.mark.parametrize(
@@ -35,4 +35,4 @@ def test_byte_width(src_width: int, expected_width: int):
     ],
 )
 def test_is_power_of_2(src_width: int, expected: bool):
-    assert is_power_of_2(src_width) == expected
+    assert Calc.is_power_of_2(src_width) == expected

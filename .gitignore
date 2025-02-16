@@ -9,6 +9,6 @@ __pycache__
 bonsai.egg-info
 build/
 coverage.xml
-dist/
+dist_*
 htmlcov/
 site/

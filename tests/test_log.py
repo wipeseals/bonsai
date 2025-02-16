@@ -1,7 +1,7 @@
 from amaranth import Module
 
-from bonsai.log import Kanata
-from bonsai.util import Simulation
+from bonsai.rtl.log import Kanata
+from bonsai.sim.simulator import RtlSim
 
 
 def test_kanata_print_samplelog():
@@ -52,7 +52,7 @@ S	1	0	Rn	// 命令1のFステージ開始
         await ctx.tick()
 
     # 標準出力を奪って確認
-    result = Simulation.run(
+    result = RtlSim.run(
         f"{test_kanata_print_samplelog.__name__}", dut=dut, testbench=bench
     )
 
