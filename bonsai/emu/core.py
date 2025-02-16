@@ -12,19 +12,21 @@ class CoreException(enum.IntEnum):
     """
 
     # 命令アクセス例外
-    INST_ACCESS = 1
-    # データアクセス例外
-    DATA_ACCESS = enum.auto()
+    INST_FETCH = 1
+    # Register Access例外
+    REG_ACCESS = enum.auto()
     # 命令デコード例外
     INST_DECODE = enum.auto()
     # 命令実行例外
     INST_EXECUTE = enum.auto()
     # データ実行例外
-    DATA_EXECUTE = enum.auto()
+    DATA_ACCESS = enum.auto()
     # 割り込み
     INTERRUPT = enum.auto()
     # トラップ
     TRAP = enum.auto()
+    # リセット
+    RESET = enum.auto()
 
 
 @dataclass
@@ -48,13 +50,20 @@ class RegFile:
     # 汎用レジスタ32本
     regs: List[MemSpace.AbstAddrType] = field(default_factory=lambda: [0] * 32)
 
+    # register本数
+    num_regs_nax: int = 32
+    # E Extensionの場合、レジスタ本数制限が入る
+    num_regs_current: int = 32
+
     def clear(self) -> None:
         """
         Clear all registers
         """
         self.regs = [0] * 32
 
-    def read(self, addr: MemSpace.AbstAddrType) -> MemSpace.AbstDataType:
+    def read(
+        self, addr: MemSpace.AbstAddrType
+    ) -> Tuple[MemSpace.AbstDataType, CoreException | None]:
         """
         Read a register
         """
@@ -62,9 +71,15 @@ class RegFile:
         # zero register
         if addr == 0:
             return 0
-        return self.regs[addr]
+        # invalid register address
+        if addr >= self.num_regs_current:
+            logging.warning(f"Invalid register address: {addr=}")
+            return 0, CoreException.REG_ACCESS
+        return self.regs[addr], None
 
-    def write(self, addr: MemSpace.AbstAddrType, data: MemSpace.AbstDataType) -> None:
+    def write(
+        self, addr: MemSpace.AbstAddrType, data: MemSpace.AbstDataType
+    ) -> CoreException | None:
         """
         Write a register
         """
@@ -72,7 +87,12 @@ class RegFile:
         # zero register
         if addr == 0:
             return
+        # invalid register address
+        if addr >= self.num_regs_current:
+            logging.warning(f"Invalid register address: {addr=}")
+            return CoreException.REG_ACCESS
         self.regs[addr] = data
+        return None
 
 
 @dataclass
@@ -97,7 +117,7 @@ class IfData:
         inst_data, result = slave.read(pc)
         if result != AccessResult.OK:
             logging.warning(f"Failed to read instruction: {pc=}, {result=}")
-            return cls(pc, 0), CoreException.INST_ACCESS
+            return cls(pc, 0), CoreException.INST_FETCH
         return cls(pc, inst_data), None
 
 
@@ -686,13 +706,14 @@ class ExData:
         inst_data: IdData,
         regs: RegFile,
         reg_bit_width: int,
-    ) -> MemSpace.AbstDataType:
+    ) -> Tuple["ExData", CoreException | None]:
         """
         Execute R-Type instruction
         """
+        exception: CoreException | None = None
         # resouce
-        rs1_data = regs.read(inst_data.rs1)
-        rs2_data = regs.read(inst_data.rs2)
+        rs1_data, rs1_ex = regs.read(inst_data.rs1)
+        rs2_data, rs2_ex = regs.read(inst_data.rs2)
         rs1_data_se = inst_data.sign_ext(rs1_data, reg_bit_width)
         rs2_data_se = inst_data.sign_ext(rs2_data, reg_bit_width)
         rd_data = 0
@@ -726,6 +747,7 @@ class ExData:
         if inst_data.inst_type not in table:
             raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
 
+        # TODO: 実行時例外の対応
         rd_data = table[inst_data.inst_type]()
         # shiftrやaddで超えるケースがあるのでmask
         rd_data &= (1 << reg_bit_width) - 1
@@ -740,8 +762,9 @@ class ExData:
         """
         Execute I-Type instruction
         """
+        exception: CoreException | None = None
         # resouce
-        rs1_data = regs.read(inst_data.rs1)
+        rs1_data, rs1_ex = regs.read(inst_data.rs1)
         rs1_data_se = inst_data.sign_ext(rs1_data, reg_bit_width)
         rd_data = 0
         # 命令ごと分岐: inst_type -> func[[] -> rd_data]
@@ -763,6 +786,7 @@ class ExData:
         if inst_data.inst_type not in table:
             raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
 
+        # TODO: 実行時例外の対応
         rd_data = table[inst_data.inst_type]()
         # shiftrやaddで超えるケースがあるのでmask
         rd_data &= (1 << reg_bit_width) - 1
