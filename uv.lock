@@ -46,7 +46,7 @@ wheels = [
 
 [[package]]
 name = "bonsai"
-version = "0.0.post284+dirty"
+version = "0.0.post301+dirty"
 source = { editable = "." }
 dependencies = [
     { name = "amaranth", extra = ["builtin-yosys"] },
