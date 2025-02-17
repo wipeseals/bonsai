@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from bonsai.emu.mem import BusArbiter, BusArbiterEntry, FixSizeRam, MemSpace, UartModule
+from bonsai.emu.mem import BusArbiter, BusArbiterEntry, FixSizeRam, UartModule
 
 
 class Emulator:
@@ -19,9 +19,7 @@ class Emulator:
         Run the emulator
         """
 
-        mem_space = MemSpace(addr_bits=args.addr_width, data_bits=args.data_width)
         uart0 = UartModule(
-            space=mem_space,
             name="uart0",
             log_file_path=cls.create_dst_path("uart0.log", args.dist_file_dir),
         )
@@ -32,13 +30,10 @@ class Emulator:
             if args.program_binary_path
             else b""
         )
-        ram0 = FixSizeRam(
-            space=mem_space, name="ram0", size=args.ram_size, init_data=program_data
-        )
+        ram0 = FixSizeRam(name="ram0", size=args.ram_size, init_data=program_data)
 
         # Main Bus
         bus0 = BusArbiter(
-            space=mem_space,
             name="bus0",
             entries=[
                 # RAM
@@ -55,18 +50,6 @@ class Emulator:
         """
         Add the build command to the parser
         """
-        parser.add_argument(
-            "--addr-width",
-            type=int,
-            default=32,
-            help="Set the address width",
-        )
-        parser.add_argument(
-            "--data-width",
-            type=int,
-            default=32,
-            help="Set the data width",
-        )
         parser.add_argument(
             "--ram_start_addr",
             type=int,

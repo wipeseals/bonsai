@@ -1,9 +1,10 @@
 import enum
 import logging
+from ctypes import LittleEndianStructure, LittleEndianUnion, c_uint
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Tuple
 
-from emu.mem import BusSlave, MemSpace
+from emu.mem import BusSlave, SysAddr
 
 
 class CoreException(enum.Enum):
@@ -19,6 +20,10 @@ class CoreException(enum.Enum):
     INST_EXECUTE = enum.auto()
     # データ実行例外
     DATA_EXECUTE = enum.auto()
+    # ecall
+    ENV_CALL = enum.auto()
+    # ebreak
+    ENV_BREAK = enum.auto()
     # 割り込み
     INTERRUPT = enum.auto()
     # トラップ
@@ -32,7 +37,7 @@ class CoreConfig:
     """
 
     # Memory space
-    space: MemSpace
+    space: SysAddr
     # 初期化時点でのPC
     init_pc: int
 
@@ -44,7 +49,7 @@ class RegFile:
     """
 
     # 汎用レジスタ32本
-    regs: List[MemSpace.AbstAddrType] = field(default_factory=lambda: [0] * 32)
+    regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * 32)
 
     # register本数
     num_regs_nax: int = 32
@@ -58,8 +63,8 @@ class RegFile:
         self.regs = [0] * 32
 
     def read(
-        self, addr: MemSpace.AbstAddrType
-    ) -> Tuple[MemSpace.AbstDataType, CoreException | None]:
+        self, addr: SysAddr.AddrU32
+    ) -> Tuple[SysAddr.DataU32, CoreException | None]:
         """
         Read a register
         """
@@ -74,7 +79,7 @@ class RegFile:
         return self.regs[addr], None
 
     def write(
-        self, addr: MemSpace.AbstAddrType, data: MemSpace.AbstDataType
+        self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
     ) -> CoreException | None:
         """
         Write a register
@@ -91,30 +96,28 @@ class RegFile:
         return None
 
 
-@dataclass
-class IfStage:
-    """
-    Fetch stage data
-    """
+class InstFetch:
+    @dataclass
+    class Result:
+        # PC
+        pc: SysAddr.AddrU32
+        # 命令データ
+        raw: SysAddr.DataU32
 
-    # PC
-    inst_addr: MemSpace.AbstAddrType
-    # 命令データ
-    inst_data: MemSpace.AbstDataType
-
-    @classmethod
+    @staticmethod
     def run(
-        cls, pc: MemSpace.AbstAddrType, slave: BusSlave
-    ) -> Tuple["IfStage", CoreException | None]:
+        pc: SysAddr.AddrU32, slave: BusSlave
+    ) -> Tuple["InstFetch.Result", CoreException | None]:
         """
         Fetch stage: 命令を取得する
         """
+        exception: CoreException | None = None
         # 命令データ取得
         inst_data, access_ret = slave.read(pc)
         if access_ret is not None:
             logging.warning(f"Failed to read instruction: {pc=}, {access_ret=}")
-            return cls(pc, 0), CoreException.INST_ACCESS
-        return cls(pc, inst_data), None
+            exception = CoreException.INST_ACCESS
+        return InstFetch.Result(pc, inst_data), exception
 
 
 @enum.unique
@@ -228,60 +231,155 @@ class InstType(enum.Enum):
     AMOMIN_W = enum.auto()
 
 
+class InstRType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("funct7", c_uint, 7),
+        ("rs2", c_uint, 5),
+        ("rs1", c_uint, 5),
+        ("funct3", c_uint, 3),
+        ("rd", c_uint, 5),
+        ("opcode", c_uint, 7),
+    ]
+
+
+class InstIType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("imm_11_0", c_uint, 12),
+        ("rs1", c_uint, 5),
+        ("funct3", c_uint, 3),
+        ("rd", c_uint, 5),
+        ("opcode", c_uint, 7),
+    ]
+
+    @property
+    def imm(self) -> int:
+        return self.imm_11_0
+
+
+class InstSType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("imm_11_5", c_uint, 7),
+        ("rs2", c_uint, 5),
+        ("rs1", c_uint, 5),
+        ("funct3", c_uint, 3),
+        ("imm_4_0", c_uint, 5),
+        ("opcode", c_uint, 7),
+    ]
+
+    @property
+    def imm(self) -> int:
+        return (self.imm_11_5 << 5) | self.imm_4_0
+
+
+class InstBType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("imm_12", c_uint, 1),
+        ("imm_10_5", c_uint, 6),
+        ("rs2", c_uint, 5),
+        ("rs1", c_uint, 5),
+        ("funct3", c_uint, 3),
+        ("imm_4_1", c_uint, 4),
+        ("imm_11", c_uint, 1),
+        ("opcode", c_uint, 7),
+    ]
+
+    @property
+    def imm(self) -> int:
+        return (
+            (self.imm_12 << 12)
+            | (self.imm_11 << 11)
+            | (self.imm_10_5 << 5)
+            | (self.imm_4_1 << 1)
+        )
+
+
+class InstUType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("imm_31_12", c_uint, 20),
+        ("rd", c_uint, 5),
+        ("opcode", c_uint, 7),
+    ]
+
+    @property
+    def imm(self) -> int:
+        return self.imm_31_12 << 12
+
+
+class InstJType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("imm_20", c_uint, 1),
+        ("imm_10_1", c_uint, 10),
+        ("imm_11", c_uint, 1),
+        ("imm_19_12", c_uint, 8),
+        ("rd", c_uint, 5),
+        ("opcode", c_uint, 7),
+    ]
+
+    @property
+    def imm(self) -> int:
+        return (
+            (self.imm_20 << 20)
+            | (self.imm_19_12 << 12)
+            | (self.imm_11 << 11)
+            | (self.imm_10_1 << 1)
+        )
+
+
+class InstAtomicType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("funct5", c_uint, 5),
+        ("aq", c_uint, 1),
+        ("rl", c_uint, 1),
+        ("rs2", c_uint, 5),
+        ("rs1", c_uint, 5),
+        ("funct3", c_uint, 3),
+        ("rd", c_uint, 5),
+        ("opcode", c_uint, 7),
+    ]
+
+
+class DecodedInst(LittleEndianUnion):
+    _pack_ = 1
+    _fields_ = [
+        ("raw", c_uint),
+        ("r", InstRType),
+        ("i", InstIType),
+        ("s", InstSType),
+        ("b", InstBType),
+        ("u", InstUType),
+        ("j", InstJType),
+        ("atomic", InstAtomicType),
+    ]
+
+
 @dataclass
 class IdStage:
     """
-    命令データ
-
-    Core Instruction Formats:
-        | R-Type (Register Type):  | funct7@31-25                 | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
-        | I-Type (Immediate Type): | imm[11:0]@31-20                          | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
-        | S-Type (Store Type):     | imm[11:5]@31-25              | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:0]@11-7    | opcode@6-0 |
-        | B-Type (Branch Type):    | imm[12|10:5]@31-25           | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:1|11]@11-7 | opcode@6-0 |
-        | U-Type (Upper Type):     | imm[31:12]@31-12                                                    | rd@11-7          | opcode@6-0 |
-        | J-Type (Jump Type):      | imm[20|10:1|11|19:12]@31-25                                         | rd@11-7          | opcode@6-0 |
-
-    Atomic Extension Instruction Formats:
-        | R-Type                   | funct5@31-27 | aq@26 | rl@25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
+    Decode stage data
     """
 
     #######################################
     # 共通要素
     # 命令配置場所
-    inst_addr: MemSpace.AbstAddrType
+    addr: SysAddr.AddrU32
     # 命令生データ
-    inst_data: MemSpace.AbstDataType
+    raw: SysAddr.DataU32
     # 命令フォーマット
-    inst_fmt: InstFmt
+    fmt: InstFmt
     # 命令タイプ
-    inst_type: InstType
-    #######################################
+    type: InstType
     # 命令データ
-    # register souce 1
-    rs1: MemSpace.AbstDataType | None = None
-    # register souce 2
-    rs2: MemSpace.AbstDataType | None = None
-    # register destination
-    rd: MemSpace.AbstDataType | None = None
-    # immediate value
-    imm: MemSpace.AbstDataType | None = None
-    # immediate value sign extended (for B-Type)
-    imm_se: MemSpace.AbstDataSignedType | None = None
-    # funct3
-    funct3: MemSpace.AbstDataType | None = None
-    # funct7
-    funct7: MemSpace.AbstDataType | None = None
-    #######################################
-    # for Atomic Extension
-    # funct5
-    func5: MemSpace.AbstDataType | None = None
-    # acquire
-    aq: MemSpace.AbstDataType | None = None
-    # release
-    rl: MemSpace.AbstDataType | None = None
+    data: DecodedInst
 
     @classmethod
-    def _decode_opcode(cls, inst_data: MemSpace.AbstDataType) -> InstFmt:
+    def _decode_opcode(cls, inst_data: SysAddr.DataU32) -> InstFmt:
         try:
             return InstFmt(inst_data & 0x7F)
         except ValueError as e:
@@ -289,9 +387,7 @@ class IdStage:
             return InstFmt.DEBUG_UNDEFINED
 
     @classmethod
-    def sign_ext(
-        cls, data: MemSpace.AbstDataType, bit_width: int
-    ) -> MemSpace.AbstDataSignedType:
+    def sign_ext(cls, data: SysAddr.DataU32, bit_width: int) -> SysAddr.DataS32:
         """
         符号拡張
         """
@@ -301,7 +397,7 @@ class IdStage:
 
     @classmethod
     def _decode_r(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         R-Type (Register Type) Decoder
@@ -348,7 +444,7 @@ class IdStage:
 
     @classmethod
     def _decode_i(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         I-Type (Immediate Type) Decoder
@@ -397,7 +493,7 @@ class IdStage:
 
     @classmethod
     def _decode_s(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         S-Type (Store Type) Decoder
@@ -436,7 +532,7 @@ class IdStage:
         ), exception
 
     def _decode_b(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         B-Type (Branch Type) Decoder
@@ -481,7 +577,7 @@ class IdStage:
         ), exception
 
     def _decode_u(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         U-Type (Upper Type) Decoder
@@ -513,7 +609,7 @@ class IdStage:
         )
 
     def _decode_j(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         J-Type (Jump Type) Decoder
@@ -550,7 +646,7 @@ class IdStage:
 
     @classmethod
     def _decode_i_env(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         I-Type (Immediate Type) for Environment Call/Break Decoder
@@ -586,7 +682,7 @@ class IdStage:
 
     @classmethod
     def _decode_r_atomic(
-        cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
+        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
     ) -> Tuple["IdStage", CoreException | None]:
         """
         R-Type (Register Type) for Atomic Decoder
@@ -639,12 +735,12 @@ class IdStage:
         """
 
         # 命令フォーマット
-        inst_fmt = cls._decode_opcode(fetch_data.inst_data)
+        inst_fmt = cls._decode_opcode(fetch_data.raw)
         # 命令タイプ: inst_fmt -> func
         table: Dict[
             InstFmt,
             Callable[
-                [MemSpace.AbstAddrType, MemSpace.AbstDataType],
+                [SysAddr.AddrU32, SysAddr.DataU32],
                 Tuple["IdStage", CoreException | None],
             ],
         ] = {
@@ -661,12 +757,12 @@ class IdStage:
         }
         f = table.get(inst_fmt, None)
         if f is not None:
-            return f(fetch_data.inst_addr, fetch_data.inst_data)
+            return f(fetch_data.addr, fetch_data.raw)
         else:
             logging.warning(f"Unknown instruction format: {inst_fmt=}")
             return cls(
-                inst_addr=fetch_data.inst_addr,
-                inst_data=fetch_data.inst_data,
+                inst_addr=fetch_data.addr,
+                inst_data=fetch_data.raw,
                 inst_fmt=InstFmt.DEBUG_UNDEFINED,
                 inst_type=InstType.DEBUG_UNDEFINED,
             ), CoreException.INST_DECODE
@@ -679,17 +775,15 @@ class ExStage:
     """
 
     # rdへの書き戻しがあれば値をいれる
-    write_rd_from_alu: MemSpace.AbstDataType | None = None
+    write_rd_from_alu: SysAddr.DataU32 | None = None
     # メモリからデータ取得が必要であればアドレスをいれる
     # addr -> reg_addr
-    write_rd_from_mem: Tuple[MemSpace.AbstAddrType, int] | None = None
+    write_rd_from_mem: Tuple[SysAddr.AddrU32, int] | None = None
     # メモリへの書き込みが必要であればアドレスとデータをいれる
     # addr -> data
-    write_mem_from_alu: Tuple[MemSpace.AbstAddrType, MemSpace.AbstDataType] | None = (
-        None
-    )
+    write_mem_from_alu: Tuple[SysAddr.AddrU32, SysAddr.DataU32] | None = None
     # PCの更新が必要であればアドレスをいれる
-    write_pc: MemSpace.AbstAddrType | None = None
+    write_pc: SysAddr.AddrU32 | None = None
     # TODO: ecall/ebreakなどの例外が発生した場合の処理を追加
 
     @classmethod
@@ -712,7 +806,7 @@ class ExStage:
         # 命令ごと分岐: inst_type -> func[[] -> rd_data]
         table: Dict[
             InstType,
-            Callable[MemSpace.AbstDataType],
+            Callable[SysAddr.DataU32],
         ] = {
             # Base Integer
             InstType.ADD: lambda: rs1_data_se + rs2_data_se,
@@ -736,11 +830,11 @@ class ExStage:
             InstType.REMU: lambda: rs1_data % rs2_data,
         }
         # Decodeできていればここには来ないはず
-        if inst_data.inst_type not in table:
-            raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
+        if inst_data.type not in table:
+            raise NotImplementedError(f"Unknown instruction: {inst_data.type=}")
 
         # TODO: 実行時例外の対応
-        rd_data = table[inst_data.inst_type]()
+        rd_data = table[inst_data.type]()
         # shiftrやaddで超えるケースがあるのでmask
         rd_data &= (1 << reg_bit_width) - 1
         return rd_data
@@ -750,7 +844,7 @@ class ExStage:
         inst_data: IdStage,
         regs: RegFile,
         reg_bit_width: int,
-    ) -> MemSpace.AbstDataType:
+    ) -> SysAddr.DataU32:
         """
         Execute I-Type instruction
         """
@@ -762,7 +856,7 @@ class ExStage:
         # 命令ごと分岐: inst_type -> func[[] -> rd_data]
         table: Dict[
             InstType,
-            Callable[MemSpace.AbstDataType],
+            Callable[SysAddr.DataU32],
         ] = {
             InstType.ADDI: lambda: rs1_data_se + inst_data.imm_se,
             InstType.XORI: lambda: rs1_data ^ inst_data.imm,
@@ -775,11 +869,11 @@ class ExStage:
             InstType.SLTIU: lambda: rs1_data < inst_data.imm,
         }
         # Decodeできていればここには来ないはず
-        if inst_data.inst_type not in table:
-            raise NotImplementedError(f"Unknown instruction: {inst_data.inst_type=}")
+        if inst_data.type not in table:
+            raise NotImplementedError(f"Unknown instruction: {inst_data.type=}")
 
         # TODO: 実行時例外の対応
-        rd_data = table[inst_data.inst_type]()
+        rd_data = table[inst_data.type]()
         # shiftrやaddで超えるケースがあるのでmask
         rd_data &= (1 << reg_bit_width) - 1
         return rd_data
@@ -807,7 +901,7 @@ class ExStage:
             # InstFmt.J_JAL: cls._decode_j,
             # InstFmt.R_ATOMIC: cls._decode_r_atomic,
         }
-        dst = table.get(inst_data.inst_fmt, None)
+        dst = table.get(inst_data.fmt, None)
 
         # TODO: exのArithmetic ExやEcallなどもあるので例外処理いれる
         # if dst is None:
@@ -827,7 +921,7 @@ class Core:
         self.config = config
         # RegisterFile & PC
         self.regs = RegFile()
-        self.pc: MemSpace.AbstAddrType = 0
+        self.pc: SysAddr.AddrU32 = 0
 
     def reset(self) -> None:
         """

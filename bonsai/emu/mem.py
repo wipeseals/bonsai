@@ -54,14 +54,14 @@ class BusSlave(ABC):
     """
 
     @abstractmethod
-    def name(self) -> str:
+    def get_name(self) -> str:
         """
         Get the name of the slave
         """
         pass
 
     @abstractmethod
-    def size(self) -> int:
+    def get_size(self) -> int:
         """
         Get the size of the slave
         """
@@ -153,10 +153,10 @@ class FixSizeRam(BusSlave):
             else:
                 raise ValueError(f"Unsupported init_data type: {type(init_data)}")
 
-    def name(self) -> str:
+    def get_name(self) -> str:
         return self.name
 
-    def size(self) -> int:
+    def get_size(self) -> int:
         return self.size
 
     def read(
@@ -295,6 +295,7 @@ class UartModule(MemMappedRegModule):
         pre_stdin: List[str] | None = None,
     ):
         self.name = name
+        self.size = UartModule.RegIdx.NUM_REGS.value * SysAddr.WORD_BYTES
         # stdin事前入力
         self._pre_stdin = pre_stdin
         self._pre_stdin_idx: int | None = (
@@ -308,11 +309,11 @@ class UartModule(MemMappedRegModule):
             with open(self._log_file_path, "w"):
                 pass
 
-    def name(self) -> str:
+    def get_name(self) -> str:
         return self.name
 
-    def size(self) -> int:
-        return UartModule.RegIdx.NUM_REGS.value * SysAddr.WORD_BYTES
+    def get_size(self) -> int:
+        return self.size
 
     def read_reg(
         self,
@@ -391,11 +392,11 @@ class BusArbiterEntry:
 
     @property
     def end_addr(self) -> SysAddr.AddrU32:
-        return self.start_addr + self.slave.size() - 1
+        return self.start_addr + self.slave.get_size() - 1
 
     @property
     def size(self) -> int:
-        return self.slave.size()
+        return self.slave.get_size()
 
     def is_in_range(self, addr: SysAddr.AddrU32) -> bool:
         return self.start_addr <= addr <= self.end_addr
@@ -421,10 +422,10 @@ class BusArbiter(BusSlave):
                     raise ValueError(f"Overwrap detected: {entry=}, {other_entry=}")
         self._entries = list(entries)
 
-    def name(self) -> str:
+    def get_name(self) -> str:
         return self.name
 
-    def size(self) -> int:
+    def get_size(self) -> int:
         return self.size
 
     def read(
@@ -458,7 +459,9 @@ class BusArbiter(BusSlave):
         登録された全slaveの内容をファイルに出力
         """
         for idx, entry in enumerate(self._entries):
-            dump_file_path = f"{dump_base_path}_{idx:04d}_{entry.slave.name()}.{format}"
+            dump_file_path = (
+                f"{dump_base_path}_{idx:04d}_{entry.slave.get_name()}.{format}"
+            )
             entry.slave.dump(
                 dump_file_path, format, offset_addr=offset_addr + entry.start_addr
             )
