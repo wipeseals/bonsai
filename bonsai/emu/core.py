@@ -14,12 +14,12 @@ class CoreException(enum.Enum):
 
     # 命令アクセス例外
     INST_ACCESS = enum.auto()
-    # データアクセス例外
-    DATA_ACCESS = enum.auto()
+    # 命令デコード例外
+    INST_DECODE = enum.auto()
     # 命令実行例外
     INST_EXECUTE = enum.auto()
-    # データ実行例外
-    DATA_EXECUTE = enum.auto()
+    # データアクセス例外
+    DATA_ACCESS = enum.auto()
     # ecall
     ENV_CALL = enum.auto()
     # ebreak
@@ -97,6 +97,10 @@ class RegFile:
 
 
 class InstFetch:
+    """
+    命令フェッチを実行する
+    """
+
     @dataclass
     class Result:
         # PC
@@ -108,9 +112,6 @@ class InstFetch:
     def run(
         pc: SysAddr.AddrU32, slave: BusSlave
     ) -> Tuple["InstFetch.Result", CoreException | None]:
-        """
-        Fetch stage: 命令を取得する
-        """
         exception: CoreException | None = None
         # 命令データ取得
         inst_data, access_ret = slave.read(pc)
@@ -126,8 +127,6 @@ class InstFmt(enum.IntEnum):
     Instruction format
     """
 
-    # Emulator Only (Undefined)
-    DEBUG_UNDEFINED = 0
     # Register:
     # - Arithmetic (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
     # - Multiply (MUL, MULH, MULHSU, MULU, DIV, DIVU, REM, REMU)
@@ -160,8 +159,6 @@ class InstType(enum.Enum):
     Instruction Names
     """
 
-    # Emulator Only (Undefined)
-    DEBUG_UNDEFINED = enum.auto()
     # Base Integer R-Type Integer Arithmetic Instructions
     ADD = enum.auto()
     SUB = enum.auto()
@@ -229,6 +226,14 @@ class InstType(enum.Enum):
     AMOXOR_W = enum.auto()
     AMOMAX_W = enum.auto()
     AMOMIN_W = enum.auto()
+
+
+class InstCommon(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("reserved", c_uint, 25),
+        ("opcode", c_uint, 7),
+    ]
 
 
 class InstRType(LittleEndianStructure):
@@ -349,6 +354,7 @@ class DecodedInst(LittleEndianUnion):
     _pack_ = 1
     _fields_ = [
         ("raw", c_uint),
+        ("common", InstCommon),
         ("r", InstRType),
         ("i", InstIType),
         ("s", InstSType),
@@ -359,413 +365,134 @@ class DecodedInst(LittleEndianUnion):
     ]
 
 
-@dataclass
-class IdStage:
+class InstDecode:
     """
-    Decode stage data
+    命令デコードを実行する
     """
 
-    #######################################
-    # 共通要素
-    # 命令配置場所
-    addr: SysAddr.AddrU32
-    # 命令生データ
-    raw: SysAddr.DataU32
-    # 命令フォーマット
-    fmt: InstFmt
-    # 命令タイプ
-    type: InstType
-    # 命令データ
-    data: DecodedInst
-
-    @classmethod
-    def _decode_opcode(cls, inst_data: SysAddr.DataU32) -> InstFmt:
-        try:
-            return InstFmt(inst_data & 0x7F)
-        except ValueError as e:
-            logging.warning(f"Unknown opcode: {inst_data=}, {e=}")
-            return InstFmt.DEBUG_UNDEFINED
-
-    @classmethod
-    def sign_ext(cls, data: SysAddr.DataU32, bit_width: int) -> SysAddr.DataS32:
-        """
-        符号拡張
-        """
-        if data & (1 << (bit_width - 1)):
-            return data - (1 << bit_width)
-        return data
-
-    @classmethod
-    def _decode_r(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        R-Type (Register Type) Decoder
-        | R-Type (Register Type):  | funct7@31-25       | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
-        """
-
-        exception: CoreException | None = None
-        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
-        rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
-        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
-        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
-        funct7 = (inst_data >> 25) & 0x7F  # Extract bits 31-25 for funct7
-        # funct3 -> (funct7 -> inst_type)
-        table: Dict[int, Dict[int, InstType]] = {
-            # Base Integer + Multiply Extension
-            0x0: {0x00: InstType.ADD, 0x20: InstType.SUB, 0x01: InstType.MUL},
-            0x4: {0x00: InstType.XOR, 0x01: InstType.DIV},
-            0x6: {0x00: InstType.OR, 0x01: InstType.REM},
-            0x7: {0x00: InstType.AND, 0x01: InstType.REMU},
-            0x1: {0x00: InstType.SLL, 0x01: InstType.MULH},
-            0x5: {0x00: InstType.SRL, 0x20: InstType.SRA, 0x01: InstType.DIVU},
-            0x2: {0x00: InstType.SLT, 0x01: InstType.MULSU},
-            0x3: {0x00: InstType.SLTU, 0x01: InstType.MULU},
-        }
-        inst_type = InstType.DEBUG_UNDEFINED
-        if (funct3 in table) and (funct7 in table[funct3]):
-            inst_type = table[funct3][funct7]
-        else:
-            logging.warning(f"Unknown funct3/funct7: {funct3=}/{funct7=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.R,
-            inst_type=inst_type,
-            rs1=rs1,
-            rs2=rs2,
-            rd=rd,
-            funct3=funct3,
-            funct7=funct7,
-        ), exception
-
-    @classmethod
-    def _decode_i(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        I-Type (Immediate Type) Decoder
-        | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
-        """
-
-        exception: CoreException | None = None
-        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
-        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
-        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
-        imm = (inst_data >> 20) & 0xFFF  # Extract bits 31-20 for imm[11:0]
-        imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
-        imm_lower = imm & 0x1F  # Extract bits 4-0 for imm[4:0]
-        imm_upper = (imm & 0x7FF) >> 5  # Extract bits 11-5 for imm[11:5]
-        # funct3 -> (imm[11:0] -> inst_type)
-        table: Dict[int, Callable[InstType]] = {
-            0x0: lambda: InstType.ADDI,
-            0x4: lambda: InstType.XORI,
-            0x6: lambda: InstType.ORI,
-            0x7: lambda: InstType.ANDI,
-            # SLLI は imm[11] で判定
-            0x1: lambda: InstType.SLLI if imm_upper == 0 else InstType.DEBUG_UNDEFINED,
-            # SRLI/SRAI は imm[11] で判定
-            0x5: lambda: InstType.SRLI if imm_upper == 0 else InstType.SRAI,
-            0x2: lambda: InstType.SLTI,
-            0x3: lambda: InstType.SLTIU,
-        }
-        inst_type = table.get(funct3, None)
-        if inst_type is None:
-            logging.warning(f"Unknown funct3/imm: {funct3=}/{imm=}")
-            inst_type = InstType.DEBUG_UNDEFINED
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.I,
-            inst_type=inst_type,
-            rs1=rs1,
-            rd=rd,
-            funct3=funct3,
-            imm=imm,
-            imm_se=imm_se,
-        ), exception
-
-    @classmethod
-    def _decode_s(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        S-Type (Store Type) Decoder
-        | S-Type (Store Type):     | imm[11:5]@31-25    | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:0]@11-7    | opcode@6-0 |
-        """
-        exception: CoreException | None = None
-        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
-        rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
-        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
-        imm = ((inst_data >> 25) & 0x7F) << 5 | (
-            (inst_data >> 7) & 0x1F
-        ) << 0  # Extract bits 31-25 and 11-7 for imm[11:0]
-        imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
-        # funct3 -> inst_type
-        table: Dict[int, InstType] = {
-            0x0: InstType.SB,
-            0x1: InstType.SH,
-            0x2: InstType.SW,
-        }
-        inst_type = table.get(funct3, InstType.DEBUG_UNDEFINED)
-        if inst_type == InstType.DEBUG_UNDEFINED:
-            logging.warning(f"Unknown funct3: {funct3=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.S,
-            inst_type=inst_type,
-            rs1=rs1,
-            rs2=rs2,
-            funct3=funct3,
-            imm=imm,
-            imm_se=imm_se,
-        ), exception
-
-    def _decode_b(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        B-Type (Branch Type) Decoder
-        | B-Type (Branch Type):    | imm[12|10:5]@31-25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:1|11]@11-7 | opcode@6-0 |
-        """
-        exception: CoreException | None = None
-        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
-        rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
-        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
-        imm = (
-            ((inst_data >> 31) & 0x1) << 12  # Extract bit 31 for imm[12]
-            | ((inst_data >> 7) & 0x1) << 11  # Extract bit 7 for imm[11]
-            | ((inst_data >> 25) & 0x3F) << 5  # Extract bits 30-25 for imm[10:5]
-            | ((inst_data >> 8) & 0xF) << 1  # Extract bits 11-8 for imm[4:1]
-        )
-        imm_se = cls.sign_ext(imm, 13)  # Sign extend the immediate value to 13 bits
-        # funct3 -> inst_type
-        table: Dict[int, InstType] = {
-            0x0: InstType.BEQ,
-            0x1: InstType.BNE,
-            0x4: InstType.BLT,
-            0x5: InstType.BGE,
-            0x6: InstType.BLTU,
-            0x7: InstType.BGEU,
-        }
-        inst_type = table.get(funct3, InstType.DEBUG_UNDEFINED)
-        if inst_type == InstType.DEBUG_UNDEFINED:
-            logging.warning(f"Unknown funct3: {funct3=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.B,
-            inst_type=inst_type,
-            rs1=rs1,
-            rs2=rs2,
-            funct3=funct3,
-            imm=imm,
-            imm_se=imm_se,
-        ), exception
-
-    def _decode_u(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        U-Type (Upper Type) Decoder
-        | U-Type (Upper Type):     | imm[31:12]@31-12                                          | rd@11-7          | opcode@6-0 |
-        """
-        exception: CoreException | None = None
-        opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
-        imm = (inst_data >> 12) & 0xFFFFF  # Extract bits 31-12 for imm[31:12]
-        imm_se = cls.sign_ext(imm, 20)  # Sign extend the immediate value to 20 bits
-        # opcode -> inst_type
-        table: Dict[int, InstType] = {
-            0b0110111: InstType.LUI,
-            0b0010111: InstType.AUIPC,
-        }
-        inst_type = table.get(opcode, InstType.DEBUG_UNDEFINED)
-        if inst_type == InstType.DEBUG_UNDEFINED:
-            logging.warning(f"Unknown opcode: {opcode=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.U_LUI,
-            inst_type=inst_type,
-            rd=rd,
-            imm=imm,
-            imm_se=imm_se,
-        )
-
-    def _decode_j(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        J-Type (Jump Type) Decoder
-        | J-Type (Jump Type):      | imm[20|10:1|11|19:12]@31-25                               | rd@11-7          | opcode@6-0 |
-        """
-        exception: CoreException | None = None
-        opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
-        imm = (
-            ((inst_data >> 31) & 0x1) << 20  # Extract bit 31 for imm[20]
-            | ((inst_data >> 12) & 0xFF) << 12  # Extract bits 19-12 for imm[19:12]
-            | ((inst_data >> 20) & 0x1) << 11  # Extract bit 20 for imm[11]
-            | ((inst_data >> 21) & 0x3FF) << 1  # Extract bits 30-21 for imm[10:1]
-        )
-        imm_se = cls.sign_ext(imm, 21)  # Sign extend the immediate value to 21 bits
-        # opcode -> inst_type
-        table: Dict[int, InstType] = {
-            0b1101111: InstType.JAL,
-        }
-        inst_type = table.get(opcode, InstType.DEBUG_UNDEFINED)
-        if inst_type == InstType.DEBUG_UNDEFINED:
-            logging.warning(f"Unknown opcode: {opcode=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.J_JAL,
-            inst_type=inst_type,
-            rd=rd,
-            imm=imm,
-            imm_se=imm_se,
-        ), exception
-
-    @classmethod
-    def _decode_i_env(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        I-Type (Immediate Type) for Environment Call/Break Decoder
-        | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
-        """
-        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
-        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
-        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
-        imm = (inst_data >> 20) & 0xFFF  # Extract bits 31-20 for imm[11:0]
-        imm_se = cls.sign_ext(imm, 12)  # Sign extend the immediate value to 12 bits
-        # imm -> inst_type
-        table: Dict[int, InstType] = {
-            0x000: InstType.ECALL,
-            0x001: InstType.EBREAK,
-        }
-        inst_type = table.get(imm, InstType.DEBUG_UNDEFINED)
-        if inst_type == InstType.DEBUG_UNDEFINED:
-            logging.warning(f"Unknown imm: {imm=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.I_ENV,
-            inst_type=inst_type,
-            rs1=rs1,
-            rd=rd,
-            funct3=funct3,
-            imm=imm,
-            imm_se=imm_se,
-        )
-
-    @classmethod
-    def _decode_r_atomic(
-        cls, inst_addr: SysAddr.AddrU32, inst_data: SysAddr.DataU32
-    ) -> Tuple["IdStage", CoreException | None]:
-        """
-        R-Type (Register Type) for Atomic Decoder
-        | R-Type                   | funct5@31-27 | aq@26 | rl@25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
-        """
-        exception: CoreException | None = None
-        _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
-        rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
-        rs2 = (inst_data >> 20) & 0x1F  # Extract bits 24-20 for rs2
-        rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
-        funct3 = (inst_data >> 12) & 0x7  # Extract bits 14-12 for funct3
-        func5 = (inst_data >> 27) & 0x1F  # Extract bits 31-27 for func5
-        aq = (inst_data >> 26) & 0x1  # Extract bit 26 for aq
-        rl = (inst_data >> 25) & 0x1  # Extract bit 25 for rl
-        # funct5 -> inst_type
-        table: Dict[int, InstType] = {
-            0x02: InstType.LR_W,
-            0x03: InstType.SC_W,
-            0x01: InstType.AMOSWAP_W,
-            0x00: InstType.AMOADD_W,
-            0x04: InstType.AMOAND_W,
-            0x0C: InstType.AMOOR_W,
-            0x08: InstType.AMOXOR_W,
-            0x14: InstType.AMOMAX_W,
-            0x10: InstType.AMOMIN_W,
-        }
-        inst_type = table.get(func5, InstType.DEBUG_UNDEFINED)
-        if inst_type == InstType.DEBUG_UNDEFINED:
-            logging.warning(f"Unknown func5: {func5=}")
-            exception = CoreException.INST_DECODE
-
-        return cls(
-            inst_addr=inst_addr,
-            inst_data=inst_data,
-            inst_fmt=InstFmt.R_ATOMIC,
-            inst_type=inst_type,
-            rs1=rs1,
-            rs2=rs2,
-            rd=rd,
-            funct3=funct3,
-            func5=func5,
-            aq=aq,
-            rl=rl,
-        ), exception
-
-    @classmethod
-    def decode(cls, fetch_data: IfStage) -> Tuple["IdStage", CoreException | None]:
-        """
-        id stage: 命令デコードした結果を返す
-        """
-
+    @dataclass
+    class Result:
+        # 命令配置場所
+        pc: SysAddr.AddrU32
+        # 命令生データ
+        raw: SysAddr.DataU32
         # 命令フォーマット
-        inst_fmt = cls._decode_opcode(fetch_data.raw)
-        # 命令タイプ: inst_fmt -> func
-        table: Dict[
-            InstFmt,
-            Callable[
-                [SysAddr.AddrU32, SysAddr.DataU32],
-                Tuple["IdStage", CoreException | None],
-            ],
-        ] = {
-            InstFmt.R: cls._decode_r,
-            InstFmt.I: cls._decode_i,
-            InstFmt.S: cls._decode_s,
-            InstFmt.B: cls._decode_b,
-            InstFmt.J_JAL: cls._decode_j,
-            InstFmt.J_JALR: cls._decode_i,
-            InstFmt.U_LUI: cls._decode_u,
-            InstFmt.U_AUIPC: cls._decode_u,
-            InstFmt.I_ENV: cls._decode_i_env,
-            InstFmt.R_ATOMIC: cls._decode_r_atomic,
-        }
-        f = table.get(inst_fmt, None)
-        if f is not None:
-            return f(fetch_data.addr, fetch_data.raw)
-        else:
-            logging.warning(f"Unknown instruction format: {inst_fmt=}")
-            return cls(
-                inst_addr=fetch_data.addr,
-                inst_data=fetch_data.raw,
-                inst_fmt=InstFmt.DEBUG_UNDEFINED,
-                inst_type=InstType.DEBUG_UNDEFINED,
-            ), CoreException.INST_DECODE
+        i_fmt: InstFmt
+        # 命令タイプ
+        i_type: InstType
+        # 命令データ
+        i_data: DecodedInst
+
+    @classmethod
+    def decode(
+        cls, if_ret: InstFetch.Result
+    ) -> Tuple["InstDecode.Result" | None, CoreException | None]:
+        # 命令デコード
+        i_data = DecodedInst()
+        i_data.raw = if_ret.raw
+        # 命令フォーマット/タイプ
+        try:
+            i_fmt = InstFmt(i_data.common.opcode)
+            if i_fmt == InstFmt.R:
+                # funct3 -> (funct7 -> type)
+                table: Dict[int, Dict[int, InstType]] = {
+                    0b000: {0b0000000: InstType.ADD, 0b0100000: InstType.SUB},
+                    0b001: {0b0000000: InstType.SLL},
+                    0b010: {0b0000000: InstType.SLT},
+                    0b011: {0b0000000: InstType.SLTU},
+                    0b100: {0b0000000: InstType.XOR},
+                    0b101: {0b0000000: InstType.SRL, 0b0100000: InstType.SRA},
+                    0b110: {0b0000000: InstType.OR},
+                    0b111: {0b0000000: InstType.AND},
+                }
+                i_type = table[i_data.r.funct3][i_data.r.funct7]
+            elif i_fmt == InstFmt.I:
+                # funct3 -> (imm[11:5] -> type)
+                imm_11_5 = i_data.i.imm_11_0 >> 5
+                table: Dict[int, Callable[InstType]] = {
+                    0b000: lambda: InstType.ADDI,
+                    0b001: lambda: InstType.SLLI,
+                    0b010: lambda: InstType.SLTI,
+                    0b011: lambda: InstType.SLTIU,
+                    0b100: lambda: InstType.XORI,
+                    0b101: lambda: InstType.SRLI if imm_11_5 == 0 else InstType.SRAI,
+                    0b110: lambda: InstType.ORI,
+                    0b111: lambda: InstType.ANDI,
+                }
+                i_type = table[i_data.i.funct3]()
+            elif i_fmt == InstFmt.S:
+                # funct3 -> type
+                table: Dict[int, InstType] = {
+                    0b000: InstType.SB,
+                    0b001: InstType.SH,
+                    0b010: InstType.SW,
+                }
+                i_type = table[i_data.s.funct3]
+            elif i_fmt == InstFmt.B:
+                # funct3 -> type
+                table: Dict[int, InstType] = {
+                    0b000: InstType.BEQ,
+                    0b001: InstType.BNE,
+                    0b100: InstType.BLT,
+                    0b101: InstType.BGE,
+                    0b110: InstType.BLTU,
+                    0b111: InstType.BGEU,
+                }
+                i_type = table[i_data.b.funct3]
+            elif i_fmt in [InstFmt.U_LUI, InstFmt.U_AUIPC]:
+                # opcode -> type
+                table: Dict[int, InstType] = {
+                    InstFmt.U_LUI: InstType.LUI,
+                    InstFmt.U_AUIPC: InstType.AUIPC,
+                }
+                i_type = table[i_fmt]
+            elif i_fmt in [InstFmt.J_JAL, InstFmt.J_JALR]:
+                # opcode -> type
+                table: Dict[int, InstType] = {
+                    InstFmt.J_JAL: InstType.JAL,
+                    InstFmt.J_JALR: InstType.JALR,
+                }
+                i_type = table[i_fmt]
+            elif i_fmt == InstFmt.I_ENV:
+                # imm -> type
+                table: Dict[int, InstType] = {
+                    0b000: InstType.ECALL,
+                    0b001: InstType.EBREAK,
+                }
+                i_type = table[i_data.i.imm]
+            elif i_fmt == InstFmt.R_ATOMIC:
+                # funct5 -> type
+                table: Dict[int, InstType] = {
+                    0b00000: InstType.LR_W,
+                    0b00001: InstType.SC_W,
+                    0b00010: InstType.AMOSWAP_W,
+                    0b00011: InstType.AMOADD_W,
+                    0b00100: InstType.AMOAND_W,
+                    0b00101: InstType.AMOOR_W,
+                    0b00110: InstType.AMOXOR_W,
+                    0b00111: InstType.AMOMAX_W,
+                    0b01000: InstType.AMOMIN_W,
+                }
+                i_type = table[i_data.atomic.funct5]
+            else:
+                logging.warning(f"Unknown instruction format: {i_fmt=}")
+                return None, CoreException.INST_DECODE
+
+            if i_type is None or i_type not in InstType:
+                logging.warning(f"Unknown instruction type: {i_type=}")
+                return None, CoreException.INST_DECODE
+
+            return cls.Result(
+                pc=if_ret.pc,
+                raw=if_ret.raw,
+                i_fmt=i_fmt,
+                i_type=i_type,
+                i_data=i_data,
+            ), None
+
+        except ValueError as e:
+            logging.warning(f"Unknown instruction: {if_ret.raw=:08x}")
+            return None, CoreException.INST_DECODE
 
 
 @dataclass
