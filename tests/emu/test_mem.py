@@ -1,6 +1,6 @@
 import pytest
 
-from bonsai.emu.mem import BusArbiter, BusArbiterEntry, MemSpace, UartModule
+from bonsai.emu.mem import AccessType, BusArbiter, BusArbiterEntry, MemSpace, UartModule
 
 
 @pytest.mark.parametrize(
@@ -18,7 +18,7 @@ def test_uart(
 ):
     dut = UartModule(space=space, name=f"{test_uart}_dut")
     for c in stdin:
-        dut.write8(UartModule.RegIdx.TX_DATA * space.num_data_bytes, ord(c))
+        dut.write_reg(UartModule.RegIdx.TX_DATA.value, ord(c), AccessType.NORMAL)
     assert dut.stdout == stdin
 
 
@@ -43,7 +43,7 @@ def test_arbitor(
         entries=[BusArbiterEntry(slave=dut_uart, start_addr=base_addr)],
     )
     for c in stdin:
-        dut_bus.write8(
-            base_addr + UartModule.RegIdx.TX_DATA * space.num_data_bytes, ord(c)
+        dut_bus.write(
+            base_addr + UartModule.RegIdx.TX_DATA.value * 4, ord(c), AccessType.NORMAL
         )
     assert dut_uart.stdout == stdin

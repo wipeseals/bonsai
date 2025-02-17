@@ -3,30 +3,26 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Tuple
 
-from emu.mem import AccessResult, BusSlave, MemSpace
+from emu.mem import BusSlave, MemSpace
 
 
-class CoreException(enum.IntEnum):
+class CoreException(enum.Enum):
     """
     CPU例外の種類
     """
 
     # 命令アクセス例外
-    INST_FETCH = 1
-    # Register Access例外
-    REG_ACCESS = enum.auto()
-    # 命令デコード例外
-    INST_DECODE = enum.auto()
+    INST_ACCESS = enum.auto()
+    # データアクセス例外
+    DATA_ACCESS = enum.auto()
     # 命令実行例外
     INST_EXECUTE = enum.auto()
     # データ実行例外
-    DATA_ACCESS = enum.auto()
+    DATA_EXECUTE = enum.auto()
     # 割り込み
     INTERRUPT = enum.auto()
     # トラップ
     TRAP = enum.auto()
-    # リセット
-    RESET = enum.auto()
 
 
 @dataclass
@@ -96,7 +92,7 @@ class RegFile:
 
 
 @dataclass
-class IfData:
+class IfStage:
     """
     Fetch stage data
     """
@@ -107,17 +103,17 @@ class IfData:
     inst_data: MemSpace.AbstDataType
 
     @classmethod
-    def fetch(
+    def run(
         cls, pc: MemSpace.AbstAddrType, slave: BusSlave
-    ) -> Tuple["IfData", CoreException | None]:
+    ) -> Tuple["IfStage", CoreException | None]:
         """
         Fetch stage: 命令を取得する
         """
         # 命令データ取得
-        inst_data, result = slave.read(pc)
-        if result != AccessResult.OK:
-            logging.warning(f"Failed to read instruction: {pc=}, {result=}")
-            return cls(pc, 0), CoreException.INST_FETCH
+        inst_data, access_ret = slave.read(pc)
+        if access_ret is not None:
+            logging.warning(f"Failed to read instruction: {pc=}, {access_ret=}")
+            return cls(pc, 0), CoreException.INST_ACCESS
         return cls(pc, inst_data), None
 
 
@@ -230,12 +226,10 @@ class InstType(enum.Enum):
     AMOXOR_W = enum.auto()
     AMOMAX_W = enum.auto()
     AMOMIN_W = enum.auto()
-    # Floating Point Extension
-    # TODO: Implement the floating point extension
 
 
 @dataclass
-class IdData:
+class IdStage:
     """
     命令データ
 
@@ -308,7 +302,7 @@ class IdData:
     @classmethod
     def _decode_r(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         R-Type (Register Type) Decoder
         | R-Type (Register Type):  | funct7@31-25       | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
@@ -355,7 +349,7 @@ class IdData:
     @classmethod
     def _decode_i(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         I-Type (Immediate Type) Decoder
         | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
@@ -404,7 +398,7 @@ class IdData:
     @classmethod
     def _decode_s(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         S-Type (Store Type) Decoder
         | S-Type (Store Type):     | imm[11:5]@31-25    | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:0]@11-7    | opcode@6-0 |
@@ -443,7 +437,7 @@ class IdData:
 
     def _decode_b(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         B-Type (Branch Type) Decoder
         | B-Type (Branch Type):    | imm[12|10:5]@31-25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | imm[4:1|11]@11-7 | opcode@6-0 |
@@ -488,7 +482,7 @@ class IdData:
 
     def _decode_u(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         U-Type (Upper Type) Decoder
         | U-Type (Upper Type):     | imm[31:12]@31-12                                          | rd@11-7          | opcode@6-0 |
@@ -520,7 +514,7 @@ class IdData:
 
     def _decode_j(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         J-Type (Jump Type) Decoder
         | J-Type (Jump Type):      | imm[20|10:1|11|19:12]@31-25                               | rd@11-7          | opcode@6-0 |
@@ -552,17 +546,16 @@ class IdData:
             rd=rd,
             imm=imm,
             imm_se=imm_se,
-        )
+        ), exception
 
     @classmethod
     def _decode_i_env(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         I-Type (Immediate Type) for Environment Call/Break Decoder
         | I-Type (Immediate Type): | imm[11:0]@31-20                | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
         """
-        exception: CoreException | None = None
         _opcode = inst_data & 0x7F  # Extract bits 6-0 for opcode
         rs1 = (inst_data >> 15) & 0x1F  # Extract bits 19-15 for rs1
         rd = (inst_data >> 7) & 0x1F  # Extract bits 11-7 for rd
@@ -594,7 +587,7 @@ class IdData:
     @classmethod
     def _decode_r_atomic(
         cls, inst_addr: MemSpace.AbstAddrType, inst_data: MemSpace.AbstDataType
-    ) -> Tuple["IdData", CoreException | None]:
+    ) -> Tuple["IdStage", CoreException | None]:
         """
         R-Type (Register Type) for Atomic Decoder
         | R-Type                   | funct5@31-27 | aq@26 | rl@25 | rs2@24-20 | rs1@19-15 | funct3@14-12 | rd@11-7          | opcode@6-0 |
@@ -640,7 +633,7 @@ class IdData:
         ), exception
 
     @classmethod
-    def decode(cls, fetch_data: IfData) -> Tuple["IdData", CoreException | None]:
+    def decode(cls, fetch_data: IfStage) -> Tuple["IdStage", CoreException | None]:
         """
         id stage: 命令デコードした結果を返す
         """
@@ -652,7 +645,7 @@ class IdData:
             InstFmt,
             Callable[
                 [MemSpace.AbstAddrType, MemSpace.AbstDataType],
-                Tuple["IdData", CoreException | None],
+                Tuple["IdStage", CoreException | None],
             ],
         ] = {
             InstFmt.R: cls._decode_r,
@@ -665,7 +658,6 @@ class IdData:
             InstFmt.U_AUIPC: cls._decode_u,
             InstFmt.I_ENV: cls._decode_i_env,
             InstFmt.R_ATOMIC: cls._decode_r_atomic,
-            # TODO: Implement the floating point extension
         }
         f = table.get(inst_fmt, None)
         if f is not None:
@@ -681,7 +673,7 @@ class IdData:
 
 
 @dataclass
-class ExData:
+class ExStage:
     """
     EX stageの結果
     """
@@ -703,10 +695,10 @@ class ExData:
     @classmethod
     def _execute_r(
         cls,
-        inst_data: IdData,
+        inst_data: IdStage,
         regs: RegFile,
         reg_bit_width: int,
-    ) -> Tuple["ExData", CoreException | None]:
+    ) -> Tuple["ExStage", CoreException | None]:
         """
         Execute R-Type instruction
         """
@@ -755,7 +747,7 @@ class ExData:
 
     def _execute_i(
         cls,
-        inst_data: IdData,
+        inst_data: IdStage,
         regs: RegFile,
         reg_bit_width: int,
     ) -> MemSpace.AbstDataType:
@@ -794,8 +786,8 @@ class ExData:
 
     @classmethod
     def execute(
-        cls, inst_data: IdData, regs: RegFile, reg_bit_width: int
-    ) -> Tuple["ExData", CoreException | None]:
+        cls, inst_data: IdStage, regs: RegFile, reg_bit_width: int
+    ) -> Tuple["ExStage", CoreException | None]:
         """
         execute stage: Decodeした結果とPC(inst_dataに内包)/Reg値から命令を実行
         Reg/Memの書き戻しは現時点ではせず、MEM/WBへの指示として返す
@@ -803,7 +795,7 @@ class ExData:
         # 命令タイプ: inst_fmt -> func
         table: Dict[
             InstFmt,
-            Callable[[IdData, RegFile, int], "ExData"],
+            Callable[[IdStage, RegFile, int], "ExStage"],
         ] = {
             InstFmt.R: cls._execute_r,
             InstFmt.I: cls._execute_i,
@@ -814,7 +806,6 @@ class ExData:
             # InstFmt.U_AUIPC: cls._decode_u,
             # InstFmt.J_JAL: cls._decode_j,
             # InstFmt.R_ATOMIC: cls._decode_r_atomic,
-            # TODO: Implement the floating point extension
         }
         dst = table.get(inst_data.inst_fmt, None)
 
@@ -850,19 +841,19 @@ class Core:
         1cyc分進める
         """
         # IF: Instruction Fetch
-        if_data, if_ex = IfData.fetch(pc=self.pc, slave=self.slave)
+        if_data, if_ex = IfStage.run(pc=self.pc, slave=self.slave)
         if if_ex is not None:
             logging.warning(f"Fetch Error: {if_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {if_ex=}")
 
         # ID: Instruction Decode
-        id_data, id_ex = IdData.decode(fetch_data=if_data)
+        id_data, id_ex = IdStage.run(fetch_data=if_data)
         if id_ex is not None:
             logging.warning(f"Decode Error: {id_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {id_ex=}")
 
         # EX: Execute
-        ex_data, ex_ex = ExData.execute(id_data, self.regs, self.config.reg_bit_width)
+        ex_data, ex_ex = ExStage.run(id_data, self.regs, self.config.reg_bit_width)
         if ex_ex is not None:
             logging.warning(f"Execute Error: {ex_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {ex_ex=}")

@@ -1,8 +1,9 @@
 import enum
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import auto
-from typing import List, Literal, Optional, Tuple, TypeVar
+from typing import List, Literal, Tuple, TypeVar
 
 import numpy as np
 
@@ -80,14 +81,12 @@ class AccessType(enum.Enum):
     DEBUG_INTERNAL = auto()
 
 
-class AccessResult(enum.Enum):
+class BusError(enum.Enum):
     """
     バスアクセス結果
     """
 
-    OK = auto()
     ERROR_OUT_OF_RANGE = auto()
-    ERROR_MISALIGNED = auto()
     ERROR_TIMEOUT = auto()
     ERROR_UNSUPPORTED = auto()
     ERROR_BY_SLAVE = auto()
@@ -121,9 +120,8 @@ class BusSlave(ABC):
     def read(
         self,
         addr: MemSpace.AbstAddrType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
+    ) -> Tuple[MemSpace.AbstDataType, BusError | None]:
         """
         Read data from the slave
         """
@@ -134,124 +132,12 @@ class BusSlave(ABC):
         self,
         addr: MemSpace.AbstAddrType,
         data: MemSpace.AbstDataType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
+    ) -> BusError:
         """
         Write data to the slave
         """
         pass
-
-    def read8(
-        self,
-        addr: MemSpace.AbstAddrType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
-        """
-        Read 8bit data from the slave
-        """
-        return self.read(addr, 0b1, access_type)
-
-    def read16(
-        self,
-        addr: MemSpace.AbstAddrType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
-        """
-        Read 16bit data from the slave
-        """
-        return self.read(addr, 0b11, access_type)
-
-    def read32(
-        self,
-        addr: MemSpace.AbstAddrType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
-        """
-        Read 32bit data from the slave
-        """
-        assert self.space.num_data_bits >= 32
-        return self.read(addr, 0b1111, access_type)
-
-    def read64(
-        self,
-        addr: MemSpace.AbstAddrType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
-        """
-        Read 64bit data from the slave
-        """
-        assert self.space.num_data_bits >= 64
-        return self.read(addr, 0b1111_1111, access_type)
-
-    def read128(
-        self,
-        addr: MemSpace.AbstAddrType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
-        """
-        Read 128bit data from the slave
-        """
-        assert self.space.num_data_bits >= 128
-        return self.read(addr, 0b1111_1111_1111_1111, access_type)
-
-    def write8(
-        self,
-        addr: MemSpace.AbstAddrType,
-        data: MemSpace.AbstDataType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        """
-        Write 8bit data to the slave
-        """
-        return self.write(addr, data, 0b1, access_type)
-
-    def write16(
-        self,
-        addr: MemSpace.AbstAddrType,
-        data: MemSpace.AbstDataType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        """
-        Write 16bit data to the slave
-        """
-        return self.write(addr, data, 0b11, access_type)
-
-    def write32(
-        self,
-        addr: MemSpace.AbstAddrType,
-        data: MemSpace.AbstDataType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        """
-        Write 32bit data to the slave
-        """
-        assert self.space.num_data_bits >= 32
-        return self.write(addr, data, 0b1111, access_type)
-
-    def write64(
-        self,
-        addr: MemSpace.AbstAddrType,
-        data: MemSpace.AbstDataType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        """
-        Write 64bit data to the slave
-        """
-        assert self.space.num_data_bits >= 64
-        return self.write(addr, data, 0b1111_1111, access_type)
-
-    def write128(
-        self,
-        addr: MemSpace.AbstAddrType,
-        data: MemSpace.AbstDataType,
-        access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        """
-        Write 128bit data to the slave
-        """
-        assert self.space.num_data_bits >= 128
-        return self.write(addr, data, 0b1111_1111_1111_1111, access_type)
 
     def dump(
         self,
@@ -329,28 +215,28 @@ class FixSizeRam(BusSlave):
     def read(
         self,
         addr: MemSpace.AbstAddrType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
+    ) -> Tuple[MemSpace.AbstDataType, BusError | None]:
+        # アドレス範囲チェック
+        if addr < 0 or addr >= self.size:
+            return 0, BusError.ERROR_OUT_OF_RANGE
         # データ取得
         fetch_data = self.datas[addr : addr + self.space.num_data_bytes]
         data = fetch_data.view(self.space.DataType)
-        # byte enable無効部を破棄
-        data = data & byteenable
-        return AccessResult.OK, data
+        return data, None
 
     def write(
         self,
         addr: MemSpace.AbstAddrType,
         data: MemSpace.AbstDataType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        # byte enableを考慮して書き込み
-        for byte_idx in range(self.space.num_data_bytes):
-            if byteenable & (1 << byte_idx):
-                self.datas[addr + byte_idx] = (data >> (8 * byte_idx)) & 0xFF
-        return AccessResult.OK
+    ) -> BusError:
+        # アドレス範囲チェック
+        if addr < 0 or addr >= self.size:
+            return BusError.ERROR_OUT_OF_RANGE
+        # データ書き込み
+        self.datas[addr : addr + self.space.num_data_bytes] = data.view(np.uint8)
+        return None
 
 
 class FixSizeRom(FixSizeRam):
@@ -362,10 +248,9 @@ class FixSizeRom(FixSizeRam):
         self,
         addr: MemSpace.AbstAddrType,
         data: MemSpace.AbstDataType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
-        return AccessResult.ERROR_UNSUPPORTED
+    ) -> BusError:
+        return BusError.ERROR_UNSUPPORTED
 
 
 class MemMappedRegModule(BusSlave, ABC):
@@ -373,109 +258,72 @@ class MemMappedRegModule(BusSlave, ABC):
     メモリマップトレジスタを表すクラス
     """
 
-    @classmethod
-    def byte_to_reg_idx(cls, byte_idx: int, num_data_bytes: int) -> int:
+    def byte_to_reg_idx(self, byte_idx: int) -> int:
         """
         Convert byte index to register index
         """
-        return byte_idx // num_data_bytes
+        return byte_idx // self.num_data_bytes
 
-    @classmethod
-    def reg_idx_to_byte(cls, reg_idx: int, num_data_bytes: int) -> int:
+    def reg_idx_to_byte(self, reg_idx: int) -> int:
         """
         Convert register index to byte index
         """
-        return reg_idx * num_data_bytes
+        return reg_idx * self.num_data_bytes
 
-    def __init__(self, space: MemSpace, name: str, num_regs: int):
+    def __init__(
+        self,
+        space: MemSpace,
+        num_regs: int,
+        num_data_bytes: int | None = None,
+    ):
+        # num_data_bytes指定がなければMemSpaceに合わせる
+        if num_data_bytes is None:
+            num_data_bytes = space.num_data_bytes
+        # field設定
         self.num_regs = num_regs
-        self.size = self.reg_idx_to_byte(num_regs, space.num_data_bytes)
+        self.num_data_bytes = num_data_bytes
+        self.size = self.reg_idx_to_byte(num_regs)
         super().__init__(space)
 
+    @abstractmethod
     def read_reg(
-        self, reg_idx: int, access_type=AccessType.DEBUG_INTERNAL
-    ) -> MemSpace.AbstDataType:
-        """
-        Get register data
-        """
-        addr = self.reg_idx_to_byte(reg_idx, self.space.num_data_bytes)
-        ret, data = self.read(addr=addr, access_type=access_type)
-        assert ret == AccessResult.OK, f"Failed to read register {reg_idx}"
-        return data
-
-    def write_reg(
         self,
         reg_idx: int,
-        data: MemSpace.AbstDataType,
-        access_type=AccessType.DEBUG_INTERNAL,
-    ) -> AccessResult:
+        access_type: AccessType,
+    ) -> Tuple[MemSpace.AbstDataType, BusError | None]:
         """
-        Write register data
-        """
-        addr = self.reg_idx_to_byte(reg_idx, self.space.num_data_bytes)
-        return self.write(addr=addr, data=data, access_type=access_type)
-
-    @abstractmethod
-    def on_read_reg(
-        self, reg_idx: int
-    ) -> Optional[Tuple[AccessResult, MemSpace.AbstDataType]]:
-        """
-        レジスタ値Readが発生したときに呼び出し。以下の用途を想定
-        戻り値の想定:
-            | usage                                | return |
-            | ------------------------------------ | --- |
-            | event hookのみ                       | None|
-            | event hookしてかつ特定のレジスタ値を返す| (AccessResult.OK, data)|
-            | エラー応答させる                      | (AccessResult.ERROR_XXX, None)|
+        レジスタ値Readが発生したときに呼び出し
         """
         pass
 
     @abstractmethod
-    def on_write_reg(
-        self, reg_idx: int, data: MemSpace.AbstDataType
-    ) -> AccessResult | None:
+    def write_reg(
+        self,
+        reg_idx: int,
+        data: MemSpace.AbstDataType,
+        access_type: AccessType,
+    ) -> BusError | None:
         """
-        レジスタ値Writeが発生したときに呼び出し。以下の用途を想定
-
-        戻り値の想定:
-            | usage             | return |
-            | ----------------- | --- |
-            | event hookのみ    | None |
-            | エラー応答させる   | AccessResult.ERROR_XXX |
-
+        レジスタ値Writeが発生したときに呼び出し
         """
         pass
 
     def read(
         self,
         addr: MemSpace.AbstAddrType,
-        byteenable: MemSpace.AbstByteEnType,
         access_type: AccessType,
-    ) -> MemSpace.AbstDataType:
-        reg_idx = self.byte_to_reg_idx(addr, self.space.num_data_bytes)
-        # register readにフックするが、この際のエラーはそのまま帰す
-        hook_ret = self.on_read_reg(reg_idx)
-        if hook_ret is not None:
-            return hook_ret
-        # register readに成功した場合は、そのままreadを実行
-        return super().read(addr=addr, byteenable=byteenable, access_type=access_type)
+    ) -> Tuple[MemSpace.AbstDataType, BusError | None]:
+        reg_idx = self.byte_to_reg_idx(addr)
+        return self.read_reg(reg_idx, access_type)
 
     def write(
         self,
         addr: MemSpace.AbstAddrType,
         data: MemSpace.AbstDataType,
-        byteenable: MemSpace.AbstByteEnType,
         access_type: AccessType,
-    ) -> AccessResult:
-        reg_idx = self.byte_to_reg_idx(addr, self.space.num_data_bytes)
-        # register writeにフックする
-        hook_ret = self.on_write_reg(reg_idx, data)
-        if hook_ret is not None:
-            return hook_ret
-        # register writeに成功した場合は、そのままwriteを実行
-        return super().write(
-            addr=addr, data=data, byteenable=byteenable, access_type=access_type
-        )
+    ) -> BusError | None:
+        reg_idx = self.byte_to_reg_idx(addr)
+        return self.write_reg(reg_idx, data, access_type)
 
 
 class UartModule(MemMappedRegModule):
@@ -491,12 +339,12 @@ class UartModule(MemMappedRegModule):
         | 0x0000000C | TX_DATA  | RW | 0x00000000 | TX data |
     """
 
-    class RegIdx(enum.IntEnum):
+    class RegIdx(enum.Enum):
         """
         Register Index
         """
 
-        RX_VALID = 0
+        RX_VALID = auto()
         RX_DATA = auto()
         TX_FULL = auto()
         TX_DATA = auto()
@@ -509,6 +357,7 @@ class UartModule(MemMappedRegModule):
         log_file_path: str | None = None,
         pre_stdin: List[str] | None = None,
     ):
+        self.name = name
         # stdin事前入力
         self._pre_stdin = pre_stdin
         self._pre_stdin_idx: int | None = (
@@ -521,67 +370,74 @@ class UartModule(MemMappedRegModule):
         if self._log_file_path is not None:
             with open(self._log_file_path, "w"):
                 pass
-        super().__init__(space, name, UartModule.RegIdx.NUM_REGS)
+        super().__init__(
+            space=space, num_regs=UartModule.RegIdx.NUM_REGS.value, num_data_bytes=4
+        )
         # レジスタ初期値設定必要ならここで設定。全部hookで返すなら不要
 
     def name(self) -> str:
-        return super().name()
+        return self.name
 
     def size(self) -> int:
         return super().size()
 
-    def on_read_reg(
-        self, reg_idx: int
-    ) -> Optional[Tuple[AccessResult, MemSpace.AbstDataType]]:
-        if reg_idx == UartModule.RegIdx.RX_VALID:
+    def read_reg(
+        self,
+        reg_idx: int,
+        access_type: AccessType,
+    ) -> Tuple[MemSpace.AbstDataType, BusError | None]:
+        if reg_idx == UartModule.RegIdx.RX_VALID.value:
             # RX_VALID: always valid
-            return AccessResult.OK, 1
-        elif reg_idx == UartModule.RegIdx.RX_DATA:
+            return 1, None
+        elif reg_idx == UartModule.RegIdx.RX_DATA.value:
             # RX_DATA: read from stdin
             # 事前設定されたstdinを使う
             if self._pre_stdin_idx is not None:
                 if self._pre_stdin_idx < len(self._pre_stdin):
-                    ret = ord(self._pre_stdin[self._pre_stdin_idx])
+                    ret = ord(self._pre_stdin[self._pre_stdin_idx]) & 0xFF
                     self._pre_stdin_idx += 1
-                    return AccessResult.OK, ret
+                    return ret, None
             # 事前設定されたstdinがない場合は、入力を待つ
-            return AccessResult.OK, input()
-        elif reg_idx == UartModule.RegIdx.TX_FULL:
+            return input(), None
+        elif reg_idx == UartModule.RegIdx.TX_FULL.value:
             # TX_FULL: always not full
-            return AccessResult.OK, 0
-        elif reg_idx == UartModule.RegIdx.TX_DATA:
-            # TX_DATA: do nothing
-            return None
+            return 0, None
+        elif reg_idx == UartModule.RegIdx.TX_DATA.value:
+            # TX_DATA: cleared reg
+            return 0, None
         else:
-            assert False, f"Invalid register index: {reg_idx=}"
-            return AccessResult.ERROR_OUT_OF_RANGE, None
+            logging.warning(f"Invalid register index: {reg_idx=}")
+            return 0, BusError.ERROR_OUT_OF_RANGE
 
-    def on_write_reg(
-        self, reg_idx: int, data: MemSpace.AbstDataType
-    ) -> AccessResult | None:
-        if reg_idx == UartModule.RegIdx.RX_VALID:
+    def write_reg(
+        self,
+        reg_idx: int,
+        data: MemSpace.AbstDataType,
+        access_type: AccessType,
+    ) -> BusError | None:
+        if reg_idx == UartModule.RegIdx.RX_VALID.value:
             # RX_VALID: read only
-            assert False, f"RX_VALID is read only. {reg_idx=}, {data=}"
-            return AccessResult.ERROR_UNSUPPORTED
-        elif reg_idx == UartModule.RegIdx.RX_DATA:
+            logging.warning(f"RX_VALID is read only. {reg_idx=}, {data=}")
+            return BusError.ERROR_UNSUPPORTED
+        elif reg_idx == UartModule.RegIdx.RX_DATA.value:
             # RX_DATA: read only
-            assert False, f"RX_DATA is read only. {reg_idx=}, {data=}"
-            return AccessResult.ERROR_UNSUPPORTED
-        elif reg_idx == UartModule.RegIdx.TX_FULL:
+            logging.warning(f"RX_DATA is read only. {reg_idx=}, {data=}")
+            return BusError.ERROR_UNSUPPORTED
+        elif reg_idx == UartModule.RegIdx.TX_FULL.value:
             # TX_FULL: read only
-            return AccessResult.ERROR_UNSUPPORTED
-        elif reg_idx == UartModule.RegIdx.TX_DATA:
+            return BusError.ERROR_UNSUPPORTED
+        elif reg_idx == UartModule.RegIdx.TX_DATA.value:
             # TX_DATA: write to stdout
-            char = chr(data)
+            char = chr(data & 0xFF)
             self._stdout.append(char)
             print(char, end="")
             if self._log_file_path is not None:
                 with open(self._log_file_path, "a") as f:
                     f.write(char)
-            return AccessResult.OK
+            return None
         else:
-            assert False, f"Invalid register index: {reg_idx}"
-            return AccessResult.ERROR_OUT_OF_RANGE
+            logging.warning(f"Invalid register index: {reg_idx}")
+            return BusError.ERROR_OUT_OF_RANGE
 
     @property
     def stdout(self) -> str:
@@ -624,14 +480,13 @@ class BusArbiter(BusSlave):
         self.min_addr = min(slave.start_addr for slave in entries)
         self.max_addr = max(slave.end_addr for slave in entries)
         self.size = self.max_addr - self.min_addr + 1
-        assert self.size > 0, "Invalid address range"
+        if self.size < 0:
+            raise ValueError(f"Invalid size: {self.size=}")
         # Overwrapのチェック
         for idx, entry in enumerate(entries):
             for other_entry in entries[idx + 1 :]:
-                assert not (
-                    entry.start_addr <= other_entry.start_addr
-                    and entry.end_addr >= other_entry.start_addr
-                ), f"Overwrap detected: {entry=}, {other_entry=}"
+                if entry.start_addr <= other_entry.start_addr <= entry.end_addr:
+                    raise ValueError(f"Overwrap detected: {entry=}, {other_entry=}")
 
         self._entries = list(entries)
 
@@ -646,32 +501,24 @@ class BusArbiter(BusSlave):
     def read(
         self,
         addr: MemSpace.AbstAddrType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> Tuple[AccessResult, MemSpace.AbstDataType]:
+    ) -> Tuple[MemSpace.AbstDataType, BusError | None]:
         for entry in self._entries:
             if entry.is_in_range(addr):
-                return entry.slave.read(
-                    addr - entry.start_addr, byteenable, access_type
-                )
-        return AccessResult.ERROR_OUT_OF_RANGE, 0
+                return entry.slave.read(addr - entry.start_addr, access_type)
+        return BusError.ERROR_OUT_OF_RANGE, 0
 
     def write(
         self,
         addr: MemSpace.AbstAddrType,
         data: MemSpace.AbstDataType,
-        byteenable: MemSpace.AbstByteEnType | None = None,
         access_type: AccessType = AccessType.NORMAL,
-    ) -> AccessResult:
+    ) -> BusError:
         for entry in self._entries:
             if entry.is_in_range(addr):
-                return entry.slave.write(
-                    addr - entry.start_addr, data, byteenable, access_type
-                )
-        return AccessResult.ERROR_OUT_OF_RANGE
-
-    def add_slave(self, slave: BusArbiterEntry) -> None:
-        self._entries.append(slave)
+                return entry.slave.write(addr - entry.start_addr, data, access_type)
+        # Debug用にKeyValuePairなメモリに読み書きを保持しても良いかもしれない
+        return BusError.ERROR_OUT_OF_RANGE
 
     def dump_all_entries(
         self,
