@@ -1,31 +1,14 @@
-import logging
-import sys
-from dataclasses import dataclass
-from pathlib import Path
-from turtle import reset
-from typing import Any, Dict
 
 from amaranth import (
     Cat,
-    ClockDomain,
     ClockSignal,
     Const,
-    Elaboratable,
-    Instance,
     Module,
-    Mux,
     Signal,
-    unsigned,
 )
-from amaranth.build import Resource
-from amaranth.build.dsl import Attrs, Pins, Subsignal
 from amaranth.build.plat import Platform
-from amaranth.hdl import IOBufferInstance, IOPort
-from amaranth.lib import cdc, data, enum, io, stream, wiring
-from amaranth.lib.cdc import ResetSynchronizer
-from amaranth.lib.fifo import SyncFIFO
+from amaranth.lib import io, wiring
 from amaranth.lib.wiring import In, Out
-from amaranth.utils import ceil_log2
 from amaranth_boards.tang_nano_9k import TangNano9kPlatform
 from rtl.periph.gpio import Gpi, Gpo
 from rtl.periph.spi import SpiConfig, SpiMaster

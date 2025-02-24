@@ -8,6 +8,8 @@ dependencies = [
     "amaranth-boards",
     "asyncio>=3.4.3",
     "taskipy>=1.14.1",
+    "rich>=13.9.4",
+    "textual>=1.0.0",
 ]
 dynamic = ["version"]
 
@@ -46,13 +48,16 @@ version_scheme = "post-release"
 local_scheme = "dirty-tag"
 
 [tool.taskipy.tasks]
-build = "uv build"
 run = "python bonsai/main.py"
+run-sim = "python bonsai/main.py sim"
+run-build = "python bonsai/main.py build"
+run-emu = "python bonsai/main.py emu"
 check = "ruff check --fix"
 format = "ruff format"
 mypy = "mypy bonsai"
 test = "pytest -v --ff -rfs"                                           #-n auto"
 cov = "pytest --cov bonsai --cov-report term --cov-report xml -n auto"
+build-package = "uv build"
 build-tangnano9k = "python bonsai/main.py build --platform tangnano9k"
 build-arty = "python bonsai/main.py build --platform arty"
 sram-program = "openFPGALoader -b tangnano9k build/top.fs"

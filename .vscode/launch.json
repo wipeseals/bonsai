@@ -15,6 +15,16 @@
                 "--platform",
                 "${input:platform}"
             ]
+        },
+        {
+            "name": "debug: emulator",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/bonsai/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "emu",
+            ]
         }
     ],
     "inputs": [
