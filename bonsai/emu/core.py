@@ -6,6 +6,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from emu.mem import BusError, BusSlave, SysAddr
 
+from bonsai.emu.calc import Calc
+
 
 @enum.unique
 class ExceptionCode(enum.Enum):
@@ -42,47 +44,6 @@ class InterruptCode(enum.Enum):
 
     SOFTWARE = 0
     TIMER = enum.auto()
-
-
-@dataclass
-class RegFile:
-    """
-    Register file
-    """
-
-    # 汎用レジスタ32本
-    regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * 32)
-
-    def clear(self) -> None:
-        """
-        Clear all registers
-        """
-        self.regs = [0] * 32
-
-    def read(
-        self, addr: SysAddr.AddrU32
-    ) -> Tuple[SysAddr.DataU32, ExceptionCode | None]:
-        """
-        Read a register
-        """
-        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
-        # zero register
-        if addr == 0:
-            return 0
-        return self.regs[addr], None
-
-    def write(
-        self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
-    ) -> ExceptionCode | None:
-        """
-        Write a register
-        """
-        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
-        # zero register
-        if addr == 0:
-            return
-        self.regs[addr] = data
-        return None
 
 
 class IfStage:
@@ -251,6 +212,10 @@ class InstIType(LittleEndianStructure):
     def imm(self) -> int:
         return self.imm_11_0
 
+    @property
+    def imm_sext(self) -> int:
+        return Calc.sign_extend(data=self.imm, num_bit_width=12)
+
 
 class InstSType(LittleEndianStructure):
     _pack_ = 1
@@ -266,6 +231,10 @@ class InstSType(LittleEndianStructure):
     @property
     def imm(self) -> int:
         return (self.imm_11_5 << 5) | self.imm_4_0
+
+    @property
+    def imm_sext(self) -> int:
+        return Calc.sign_extend(data=self.imm, num_bit_width=12)
 
 
 class InstBType(LittleEndianStructure):
@@ -290,6 +259,10 @@ class InstBType(LittleEndianStructure):
             | (self.imm_4_1 << 1)
         )
 
+    @property
+    def imm_sext(self) -> int:
+        return Calc.sign_extend(data=self.imm, num_bit_width=13)
+
 
 class InstUType(LittleEndianStructure):
     _pack_ = 1
@@ -302,6 +275,10 @@ class InstUType(LittleEndianStructure):
     @property
     def imm(self) -> int:
         return self.imm_31_12 << 12
+
+    @property
+    def imm_sext(self) -> int:
+        return Calc.sign_extend(data=self.imm, num_bit_width=20)
 
 
 class InstJType(LittleEndianStructure):
@@ -323,6 +300,10 @@ class InstJType(LittleEndianStructure):
             | (self.imm_11 << 11)
             | (self.imm_10_1 << 1)
         )
+
+    @property
+    def imm_sext(self) -> int:
+        return Calc.sign_extend(data=self.imm, num_bit_width=21)
 
 
 class InstAtomicType(LittleEndianStructure):
@@ -476,6 +457,78 @@ class IdStage:
         ), None
 
 
+@dataclass
+class ReadRegResult:
+    rs1: int
+    rs2: int
+    rs1_sext: int
+    rs2_sext: int
+
+
+@dataclass
+class RegFile:
+    """
+    Register file
+    """
+
+    # 汎用レジスタ32本
+    regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * 32)
+
+    def clear(self) -> None:
+        """
+        Clear all registers
+        """
+        self.regs = [0] * 32
+
+    def read(
+        self, addr: SysAddr.AddrU32
+    ) -> Tuple[SysAddr.DataU32, ExceptionCode | None]:
+        """
+        Read a register
+        """
+        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
+        # zero register
+        if addr == 0:
+            return 0
+        return self.regs[addr], None
+
+    def write(
+        self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
+    ) -> ExceptionCode | None:
+        """
+        Write a register
+        """
+        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
+        # zero register
+        if addr == 0:
+            return
+        self.regs[addr] = data
+        return None
+
+    def read_srcregs(
+        self, rs1_idx: int, rs2_idx: int
+    ) -> Tuple[ReadRegResult | None, ExceptionCode | None]:
+        # read rs1, rs2
+        rs1, rs1_ex = self.read(rs1_idx)
+        if rs1_ex is not None:
+            logging.warning(f"Failed to read rs1: {rs1_ex=}")
+            return None, rs1_ex
+        rs2, rs2_ex = self.read(rs2_idx)
+        if rs2_ex is not None:
+            logging.warning(f"Failed to read rs2: {rs2_ex=}")
+            return None, rs2_ex
+        # sign extend rs1/rs2
+        rs1 = Calc.sign_extend(data=rs1, num_bit_width=32)
+        rs2 = Calc.sign_extend(data=rs2, num_bit_width=32)
+
+        return ReadRegResult(
+            rs1=rs1,
+            rs2=rs2,
+            rs1_sext=rs1,
+            rs2_sext=rs2,
+        ), None
+
+
 class ExStage:
     """
     命令実行
@@ -485,6 +538,126 @@ class ExStage:
     class Result:
         # if/id result
         id_ret: IdStage.Result
+        # rd regに書き戻すデータあれば設定
+        writeback_rd: Optional[int] = None
+
+    @dataclass
+    class Alu:
+        check_exception: Callable[[], ExceptionCode | None]
+        calc: Callable[[], SysAddr.DataU32]
+
+    @classmethod
+    def _run_rtype(
+        cls, inst: DecodedInst, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # read rs1, rs2
+        src_regs, regs_ex = reg_file.read_srcregs(
+            rs1_idx=inst.r.rs1, rs2_idx=inst.r.rs2
+        )
+        if regs_ex is not None:
+            return None, regs_ex
+        rd_data = 0
+        # 命令ごと分岐: inst_type -> func[[] -> rd_data]
+        table: Dict[InstType, ExStage.Alu] = {
+            # Base Integer
+            InstType.ADD: ExStage.Alu(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext + src_regs.rs2_sext,
+            ),
+            InstType.SUB: ExStage.Alu(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext - src_regs.rs2_sext,
+            ),
+            InstType.XOR: ExStage.Alu(
+                check_exception=lambda: None, calc=lambda: src_regs.rs1 ^ src_regs.rs2
+            ),
+            InstType.OR: ExStage.Alu(
+                check_exception=lambda: None, calc=lambda: src_regs.rs1 | src_regs.rs2
+            ),
+            InstType.AND: ExStage.Alu(
+                check_exception=lambda: None, calc=lambda: src_regs.rs1 & src_regs.rs2
+            ),
+            InstType.SLL: ExStage.Alu(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext << src_regs.rs2_sext,
+            ),
+            InstType.SRL: ExStage.Alu(
+                check_exception=lambda: None, calc=lambda: src_regs.rs1 >> src_regs.rs2
+            ),
+            InstType.SRA: ExStage.Alu(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext >> src_regs.rs2,
+            ),
+            InstType.SLT: ExStage.Alu(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext < src_regs.rs2_sext,
+            ),
+            InstType.SLTU: ExStage.Alu(
+                check_exception=lambda: None, calc=lambda: src_regs.rs1 < src_regs.rs2
+            ),
+            # Multiply Extension
+            InstType.MUL: ExStage.Alu(
+                check_exception=None, calc=lambda: src_regs.rs1_sext * src_regs.rs2_sext
+            ),
+            InstType.MULH: ExStage.Alu(
+                check_exception=None,
+                calc=lambda: (src_regs.rs1_sext * src_regs.rs2_sext)
+                >> SysAddr.NUM_WORD_BITS,
+            ),
+            InstType.MULSU: ExStage.Alu(
+                check_exception=None,
+                calc=lambda: (src_regs.rs1 * src_regs.rs2_sext)
+                >> SysAddr.NUM_WORD_BITS,
+            ),
+            InstType.MULU: ExStage.Alu(
+                check_exception=None,
+                calc=lambda: (src_regs.rs1 * src_regs.rs2) >> SysAddr.NUM_WORD_BITS,
+            ),
+            InstType.DIV: ExStage.Alu(
+                check_exception=None
+                if src_regs.rs2_sext != 0
+                else ExceptionCode.ILLEGAL_INST,
+                calc=lambda: src_regs.rs1_sext // src_regs.rs2_sext
+                if src_regs.rs2_sext != 0
+                else 0xFFFFFFFF,
+            ),
+            InstType.DIVU: ExStage.Alu(
+                check_exception=None
+                if src_regs.rs2 != 0
+                else ExceptionCode.ILLEGAL_INST,
+                calc=lambda: src_regs.rs1 // src_regs.rs2
+                if src_regs.rs2 != 0
+                else 0xFFFFFFFF,
+            ),
+            InstType.REM: ExStage.Alu(
+                check_exception=None
+                if src_regs.rs2_sext != 0
+                else ExceptionCode.ILLEGAL_INST,
+                calc=lambda: src_regs.rs1_sext % src_regs.rs2_sext
+                if src_regs.rs2_sext != 0
+                else src_regs.rs1_sext,
+            ),
+            InstType.REMU: ExStage.Alu(
+                check_exception=None
+                if src_regs.rs2 != 0
+                else ExceptionCode.ILLEGAL_INST,
+                calc=lambda: src_regs.rs1 % src_regs.rs2
+                if src_regs.rs2 != 0
+                else src_regs.rs1,
+            ),
+        }
+        alu = table.get(inst.r.funct3, None)
+        if alu is None:
+            # Decodeできていればここには来ないはず
+            logging.warning(f"Unknown instruction type: {inst.r.funct3=}")
+            return None, ExceptionCode.ILLEGAL_INST
+        # 例外の有無とセットでALU実行
+        ex_ex = alu.check_exception()
+        rd_data = alu.calc()
+        # shiftrやaddで超えるケースがあるのでmask
+        rd_data &= (1 << SysAddr.NUM_WORD_BITS) - 1
+        # WB stageでの下記戻しのみ指定
+        return ExStage.Result(id_ret=inst.id_ret, writeback_rd=rd_data), ex_ex
 
     @classmethod
     def run(
@@ -492,6 +665,27 @@ class ExStage:
         decode_data: IdStage.Result,
         reg_file: RegFile,
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        table: Dict[InstFmt, Callable[[DecodedInst, RegFile], ExceptionCode | None]] = {
+            InstFmt.R: cls._run_rtype,
+            # InstFmt.I: cls._run_itype,
+            # InstFmt.S: cls._run_stype,
+            # InstFmt.B: cls._run_btype,
+            # InstFmt.U_LUI: cls._run_utype,
+            # InstFmt.U_AUIPC: cls._run_utype,
+            # InstFmt.J_JAL: cls._run_jtype,
+            # InstFmt.J_JALR: cls._run_jtype,
+            # InstFmt.I_ENV: cls._run_itype,
+            # InstFmt.R_ATOMIC: cls._run_atomic,
+        }
+        dst = table.get(decode_data.i_fmt, None)
+        # 未定義命令
+        if dst is None:
+            logging.warning(f"Unknown instruction format: {decode_data.i_fmt=}")
+            return None, ExceptionCode.ILLEGAL_INST
+        # 命令実行
+        ex_ret, ex_ex = dst(decode_data.i_data, reg_file)
+        return ExStage.Result(id_ret=decode_data), ex_ex
+
         pass
 
 

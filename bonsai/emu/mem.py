@@ -19,6 +19,8 @@ class SysAddr:
     DataS32 = int
     # ワードあたりのバイト数
     NUM_WORD_BYTES = 4
+    # ワードあたりのビット数
+    NUM_WORD_BITS = 32
 
 
 class AccessType(enum.Enum):
