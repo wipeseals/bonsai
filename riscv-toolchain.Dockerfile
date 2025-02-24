@@ -44,8 +44,17 @@ RUN apt install -y \
 # riscv-gnu-toolchainのインストール
 RUN cd riscv-gnu-toolchain && \
     ./configure --prefix=$RISCV --with-arch=$ARCH --with-abi=$ABI --enable-multilib --enable-qemu-system && \
-    make -j$(nproc) && \
-    make
+    make -j$(nproc) linux
 
-# 環境変数の設定
-ENV PATH="/opt/riscv/bin:${PATH}"
+
+# riscv-isa-simのインストール
+RUN apt install -y \
+    device-tree-compiler \
+    libboost-regex-dev \
+    libboost-system-dev
+RUN git clone https://github.com/riscv-software-src/riscv-isa-sim.git && \
+    mkdir build && \
+    cd build && \
+    ../riscv-isa-sim/configure --prefix=$RISCV && \
+    make -j$(nproc) && \
+    make install
