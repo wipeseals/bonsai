@@ -1,11 +1,10 @@
 import enum
 import logging
 from abc import ABC, abstractmethod
+from ctypes import c_int32, c_uint32
 from dataclasses import dataclass
 from enum import auto
 from typing import List, Literal, Tuple
-
-import numpy as np
 
 
 class SysAddr:
@@ -14,13 +13,13 @@ class SysAddr:
     """
 
     # Address Space
-    AddrU32 = np.uint32
+    AddrU32 = c_uint32
     # Data (u32)
-    DataU32 = np.uint32
+    DataU32 = c_uint32
     # Data (s32)
-    DataS32 = np.int32
+    DataS32 = c_int32
     # ワードあたりのバイト数
-    WORD_BYTES = 4
+    NUM_WORD_BYTES = 4
 
 
 class AccessType(enum.Enum):
@@ -72,6 +71,7 @@ class BusSlave(ABC):
         self,
         addr: SysAddr.AddrU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> Tuple[SysAddr.DataU32, BusError | None]:
         """
         Read data from the slave
@@ -84,11 +84,45 @@ class BusSlave(ABC):
         addr: SysAddr.AddrU32,
         data: SysAddr.DataU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> BusError:
         """
         Write data to the slave
         """
         pass
+
+    def mask_unaligned_data(
+        self,
+        read_data: SysAddr.DataU32,
+        offset: SysAddr.AddrU32,
+        num_en_bytes: SysAddr.AddrU32,
+    ) -> SysAddr.DataU32:
+        """
+        指定されたデータをoffset+bytemaskして返す
+        """
+        # データのマスク
+        byte_mask = (1 << (num_en_bytes * 8)) - 1
+        read_data = (read_data >> (offset * 8)) & byte_mask
+        return read_data
+
+    def apply_unaligned_data(
+        self,
+        current_data: SysAddr.DataU32,
+        write_data: SysAddr.DataU32,
+        offset: SysAddr.AddrU32,
+        num_en_bytes: SysAddr.AddrU32,
+    ) -> SysAddr.DataU32:
+        """
+        指定されたデータをoffset+bytemaskして適用したものを返す
+        """
+        # 有効部分だけにした書き込みデータを作成
+        byte_mask = (1 << (num_en_bytes * 8)) - 1
+        write_data = (write_data & byte_mask) << (offset * 8)
+        # 現在のデータの書き込み部分を0にMaskしたデータを作成
+        current_data = current_data & ~(byte_mask << (offset * 8))
+        # 現在のデータに書き込みデータを適用
+        dst_data = current_data | write_data
+        return dst_data
 
     def dump(
         self,
@@ -136,20 +170,17 @@ class FixSizeRam(BusSlave):
         self,
         name: str,
         size: int,
-        init_data: List[int] | np.ndarray | bytes | None = None,
+        init_data: List[SysAddr.DataU32] | None = None,
     ):
         self.name = name
         self.size = size
-        # 生データはu8で保持
-        self.datas = np.zeros(size, dtype=np.uint8)
+        self.word_size = size // SysAddr.NUM_WORD_BYTES
+        # 生データはword単位で保持
+        self.datas = [SysAddr.DataU32(0) for _ in range(self.word_size)]
         # 初期値で上書き
         if init_data is not None:
             if isinstance(init_data, list):
                 self.datas[: len(init_data)] = init_data
-            elif isinstance(init_data, np.ndarray):
-                self.datas[: len(init_data)] = init_data
-            elif isinstance(init_data, bytes):
-                self.datas[: len(init_data)] = np.frombuffer(init_data, dtype=np.uint8)
             else:
                 raise ValueError(f"Unsupported init_data type: {type(init_data)}")
 
@@ -163,16 +194,21 @@ class FixSizeRam(BusSlave):
         self,
         addr: SysAddr.AddrU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> Tuple[SysAddr.DataU32, BusError | None]:
         # アドレス範囲チェック
         if addr < 0 or addr >= self.size:
             return 0, BusError.ERROR_OUT_OF_RANGE
-        # ミスアライン例外
-        if addr % SysAddr.WORD_BYTES != 0:
+        # word_index計算 + ミスアライン例外チェック
+        word_addr = addr // SysAddr.NUM_WORD_BYTES
+        word_offset = addr % SysAddr.NUM_WORD_BYTES
+        if word_offset + num_en_bytes > SysAddr.NUM_WORD_BYTES:
             return 0, BusError.ERROR_MISALIGN
-        # データ取得
-        fetch_data = self.datas[addr : addr + SysAddr.WORD_BYTES]
-        data = fetch_data.view(self.space.DataType)
+        # データ取得してアライン考慮して返す
+        data = self.datas[word_addr]
+        data = self.mask_unaligned_data(
+            read_data=data, offset=word_offset, num_en_bytes=num_en_bytes
+        )
         return data, None
 
     def write(
@@ -180,15 +216,25 @@ class FixSizeRam(BusSlave):
         addr: SysAddr.AddrU32,
         data: SysAddr.DataU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> BusError:
         # アドレス範囲チェック
         if addr < 0 or addr >= self.size:
             return BusError.ERROR_OUT_OF_RANGE
         # ミスアライン例外
-        if addr % SysAddr.WORD_BYTES != 0:
+        word_addr = addr // SysAddr.NUM_WORD_BYTES
+        word_offset = addr % SysAddr.NUM_WORD_BYTES
+        if word_offset + num_en_bytes > SysAddr.NUM_WORD_BYTES:
             return BusError.ERROR_MISALIGN
-        # データ書き込み
-        self.datas[addr : addr + SysAddr.WORD_BYTES] = data.view(np.uint8)
+        # データをアライン考慮して書き込み
+        current_data = self.datas[word_addr]
+        dst_data = self.apply_unaligned_data(
+            current_data=current_data,
+            write_data=data,
+            offset=word_offset,
+            num_en_bytes=num_en_bytes,
+        )
+        self.datas[word_addr] = dst_data
         return None
 
 
@@ -202,6 +248,7 @@ class FixSizeRom(FixSizeRam):
         addr: SysAddr.AddrU32,
         data: SysAddr.DataU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> BusError:
         return BusError.ERROR_UNSUPPORTED
 
@@ -211,17 +258,21 @@ class MemMappedRegModule(BusSlave, ABC):
     メモリマップトレジスタを表すクラス
     """
 
+    def __init__(self, num_reg_bytes: SysAddr.AddrU32 = 4):
+        self.num_reg_bytes = num_reg_bytes
+        super().__init__()
+
     def byte_to_reg_idx(self, byte_idx: int) -> int:
         """
         Convert byte index to register index
         """
-        return byte_idx // SysAddr.WORD_BYTES
+        return byte_idx // self.num_reg_bytes
 
     def reg_idx_to_byte(self, reg_idx: int) -> int:
         """
         Convert register index to byte index
         """
-        return reg_idx * SysAddr.WORD_BYTES
+        return reg_idx * self.num_reg_bytes
 
     @abstractmethod
     def read_reg(
@@ -250,18 +301,36 @@ class MemMappedRegModule(BusSlave, ABC):
         self,
         addr: SysAddr.AddrU32,
         access_type: AccessType,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> Tuple[SysAddr.DataU32, BusError | None]:
         reg_idx = self.byte_to_reg_idx(addr)
-        return self.read_reg(reg_idx, access_type)
+        data = self.read_reg(reg_idx, access_type)
+        # addr offset/en_bytes考慮
+        data = self.mask_unaligned_data(
+            read_data=data, offset=addr % self.num_reg_bytes, num_en_bytes=num_en_bytes
+        )
+        return data, None
 
     def write(
         self,
         addr: SysAddr.AddrU32,
         data: SysAddr.DataU32,
         access_type: AccessType,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> BusError | None:
         reg_idx = self.byte_to_reg_idx(addr)
-        return self.write_reg(reg_idx, data, access_type)
+        # addr offset/en_bytes考慮
+        current_data, err = self.read_reg(reg_idx, AccessType.DEBUG_INTERNAL)
+        if err is not None:
+            return err
+
+        dst_data = self.apply_unaligned_data(
+            current_data=current_data,
+            write_data=data,
+            offset=addr % self.num_reg_bytes,
+            num_en_bytes=num_en_bytes,
+        )
+        return self.write_reg(reg_idx, dst_data, access_type)
 
 
 class UartModule(MemMappedRegModule):
@@ -295,7 +364,7 @@ class UartModule(MemMappedRegModule):
         pre_stdin: List[str] | None = None,
     ):
         self.name = name
-        self.size = UartModule.RegIdx.NUM_REGS.value * SysAddr.WORD_BYTES
+        self.size = UartModule.RegIdx.NUM_REGS.value * SysAddr.NUM_WORD_BYTES
         # stdin事前入力
         self._pre_stdin = pre_stdin
         self._pre_stdin_idx: int | None = (
@@ -308,6 +377,7 @@ class UartModule(MemMappedRegModule):
         if self._log_file_path is not None:
             with open(self._log_file_path, "w"):
                 pass
+        super().__init__(num_reg_bytes=4)
 
     def get_name(self) -> str:
         return self.name
@@ -432,10 +502,13 @@ class BusArbiter(BusSlave):
         self,
         addr: SysAddr.AddrU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> Tuple[SysAddr.DataU32, BusError | None]:
         for entry in self._entries:
             if entry.is_in_range(addr):
-                return entry.slave.read(addr - entry.start_addr, access_type)
+                return entry.slave.read(
+                    addr - entry.start_addr, access_type, num_en_bytes
+                )
         return 0, BusError.ERROR_OUT_OF_RANGE
 
     def write(
@@ -443,10 +516,13 @@ class BusArbiter(BusSlave):
         addr: SysAddr.AddrU32,
         data: SysAddr.DataU32,
         access_type: AccessType = AccessType.NORMAL,
+        num_en_bytes: SysAddr.AddrU32 = SysAddr.NUM_WORD_BYTES,
     ) -> BusError:
         for entry in self._entries:
             if entry.is_in_range(addr):
-                return entry.slave.write(addr - entry.start_addr, data, access_type)
+                return entry.slave.write(
+                    addr - entry.start_addr, data, access_type, num_en_bytes
+                )
         return BusError.ERROR_OUT_OF_RANGE
 
     def dump_all_entries(
