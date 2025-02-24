@@ -58,6 +58,9 @@ class IfStage:
         # 命令データ
         raw: SysAddr.DataU32
 
+        def __repr__(self) -> str:
+            return f"IF(pc: 0x{self.pc:016x}, raw: 0x{self.raw:08x})"
+
     @staticmethod
     def run(
         pc: SysAddr.AddrU32, slave: BusSlave
@@ -72,10 +75,13 @@ class IfStage:
 
 
 @enum.unique
-class InstFmt(enum.IntEnum):
+class InstFmt(enum.Enum):
     """
     Instruction format
     """
+
+    # 0 => ADDI 0 0 にしておく
+    NOP = 0
 
     # Register:
     # - Arithmetic (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
@@ -320,7 +326,7 @@ class InstAtomicType(LittleEndianStructure):
     ]
 
 
-class DecodedInst(Union):
+class Operand(Union):
     _pack_ = 1
     _fields_ = [
         ("raw", c_uint32),
@@ -343,24 +349,28 @@ class IdStage:
     @dataclass
     class Result:
         # IF結果
-        if_ret: IfStage.Result
+        fetch_data: IfStage.Result
         # 命令フォーマット
-        i_fmt: InstFmt
+        inst_fmt: InstFmt
         # 命令タイプ
-        i_type: InstType
+        inst_type: InstType
         # 命令データ
-        i_data: DecodedInst
+        operand: Operand
+
+        def __repr__(self) -> str:
+            return f"ID(type: {self.inst_type}, fmt: {self.inst_fmt}, if: {self.fetch_data})"
 
     @classmethod
     def run(
         cls, fetch_data: IfStage.Result
     ) -> Tuple[Optional["IdStage.Result"], ExceptionCode | None]:
         # 命令デコード
-        i_data = DecodedInst()
-        i_data.raw = fetch_data.raw
+        decode_data = Operand()
+        decode_data.raw = fetch_data.raw
         # 命令フォーマット/タイプ
-        i_fmt = InstFmt(i_data.common.opcode)
-        if i_fmt == InstFmt.R:
+        inst_type: InstType | None = None
+        inst_fmt = InstFmt(decode_data.common.opcode)
+        if inst_fmt in [InstFmt.NOP, InstFmt.R]:  # NOP=ADDI 0,0,0
             # funct3 -> (funct7 -> type)
             table: Dict[int, Dict[int, InstType]] = {
                 0b000: {0b0000000: InstType.ADD, 0b0100000: InstType.SUB},
@@ -372,10 +382,12 @@ class IdStage:
                 0b110: {0b0000000: InstType.OR},
                 0b111: {0b0000000: InstType.AND},
             }
-            i_type = table.get(i_data.r.funct3, {}).get(i_data.r.funct7, None)
-        elif i_fmt == InstFmt.I:
+            inst_type = table.get(decode_data.r.funct3, {}).get(
+                decode_data.r.funct7, None
+            )
+        elif inst_fmt == InstFmt.I:
             # funct3 -> (imm[11:5] -> type)
-            imm_11_5 = i_data.i.imm_11_0 >> 5
+            imm_11_5 = decode_data.i.imm_11_0 >> 5
             table: Dict[int, Callable[InstType]] = {
                 0b000: lambda: InstType.ADDI,
                 0b001: lambda: InstType.SLLI,
@@ -386,16 +398,16 @@ class IdStage:
                 0b110: lambda: InstType.ORI,
                 0b111: lambda: InstType.ANDI,
             }
-            i_type = table.get(i_data.i.funct3, lambda x: None)()
-        elif i_fmt == InstFmt.S:
+            inst_type = table.get(decode_data.i.funct3, lambda x: None)()
+        elif inst_fmt == InstFmt.S:
             # funct3 -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.SB,
                 0b001: InstType.SH,
                 0b010: InstType.SW,
             }
-            i_type = table.get(i_data.s.funct3, None)
-        elif i_fmt == InstFmt.B:
+            inst_type = table.get(decode_data.s.funct3, None)
+        elif inst_fmt == InstFmt.B:
             # funct3 -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.BEQ,
@@ -405,29 +417,29 @@ class IdStage:
                 0b110: InstType.BLTU,
                 0b111: InstType.BGEU,
             }
-            i_type = table.get(i_data.b.funct3, None)
-        elif i_fmt in [InstFmt.U_LUI, InstFmt.U_AUIPC]:
+            inst_type = table.get(decode_data.b.funct3, None)
+        elif inst_fmt in [InstFmt.U_LUI, InstFmt.U_AUIPC]:
             # opcode -> type
             table: Dict[int, InstType] = {
                 InstFmt.U_LUI: InstType.LUI,
                 InstFmt.U_AUIPC: InstType.AUIPC,
             }
-            i_type = table.get(i_fmt, None)
-        elif i_fmt in [InstFmt.J_JAL, InstFmt.J_JALR]:
+            inst_type = table.get(inst_fmt, None)
+        elif inst_fmt in [InstFmt.J_JAL, InstFmt.J_JALR]:
             # opcode -> type
             table: Dict[int, InstType] = {
                 InstFmt.J_JAL: InstType.JAL,
                 InstFmt.J_JALR: InstType.JALR,
             }
-            i_type = table.get(i_fmt, None)
-        elif i_fmt == InstFmt.I_ENV:
+            inst_type = table.get(inst_fmt, None)
+        elif inst_fmt == InstFmt.I_ENV:
             # imm -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.ECALL,
                 0b001: InstType.EBREAK,
             }
-            i_type = table.get(i_data.i.imm)
-        elif i_fmt == InstFmt.R_ATOMIC:
+            inst_type = table.get(decode_data.i.imm)
+        elif inst_fmt == InstFmt.R_ATOMIC:
             # funct5 -> type
             table: Dict[int, InstType] = {
                 0b00000: InstType.LR_W,
@@ -440,20 +452,20 @@ class IdStage:
                 0b00111: InstType.AMOMAX_W,
                 0b01000: InstType.AMOMIN_W,
             }
-            i_type = table.get(i_data.atomic.funct5, None)
+            inst_type = table.get(decode_data.atomic.funct5, None)
         else:
-            logging.warning(f"Unknown instruction format: {i_fmt=}")
+            logging.warning(f"Unknown instruction format: {inst_fmt=}")
             return None, ExceptionCode.ILLEGAL_INST
 
-        if i_type is None or i_type not in InstType:
-            logging.warning(f"Unknown instruction type: {i_type=}")
+        if inst_type is None or inst_type not in InstType:
+            logging.warning(f"Unknown instruction type: {inst_type=}")
             return None, ExceptionCode.ILLEGAL_INST
 
         return cls.Result(
-            if_ret=fetch_data,
-            i_fmt=i_fmt,
-            i_type=i_type,
-            i_data=i_data,
+            fetch_data=fetch_data,
+            inst_fmt=inst_fmt,
+            inst_type=inst_type,
+            operand=decode_data,
         ), None
 
 
@@ -489,7 +501,7 @@ class RegFile:
         assert 0 <= addr < 32, f"Invalid register address: {addr=}"
         # zero register
         if addr == 0:
-            return 0
+            return 0, None
         return self.regs[addr], None
 
     def write(
@@ -501,7 +513,7 @@ class RegFile:
         assert 0 <= addr < 32, f"Invalid register address: {addr=}"
         # zero register
         if addr == 0:
-            return
+            return None
         self.regs[addr] = data
         return None
 
@@ -529,6 +541,27 @@ class RegFile:
         ), None
 
 
+@enum.unique
+class AfterExAction(enum.Flag):
+    """
+    EX Stage後に実行するアクション
+    """
+
+    # Load+WriteBack
+    LOAD_WRITEBACK = enum.auto()
+    # Store
+    STORE = enum.auto()
+    # WriteBack
+    WRITEBACK = enum.auto()
+    # Branch
+    BRANCH = enum.auto()
+
+    @classmethod
+    @property
+    def NOP(cls) -> "ExStage.AfterExAction":
+        return cls(0)
+
+
 class ExStage:
     """
     命令実行
@@ -537,9 +570,24 @@ class ExStage:
     @dataclass
     class Result:
         # if/id result
-        id_ret: IdStage.Result
+        decode_data: IdStage.Result
+        # next actions
+        action_bits: AfterExAction
         # rd regに書き戻すデータあれば設定
-        writeback_rd: Optional[int] = None
+        writeback_idx: Optional[int] = None
+        writeback_data: Optional[int] = None
+
+        def __repr__(self) -> str:
+            if self.action_bits & AfterExAction.WRITEBACK:
+                assert self.writeback_idx is not None
+                assert self.writeback_data is not None
+                return f"EX(action: {self.action_bits}, rd: {self.writeback_idx}, data: {self.writeback_data}, id: {self.decode_data})"
+            if self.action_bits & AfterExAction.LOAD_WRITEBACK:
+                assert self.writeback_idx is not None
+                return f"EX(action: {self.action_bits}, rd: {self.writeback_idx}, id: {self.decode_data})"
+            else:
+                # TODO:
+                return f"EX(action: {self.action_bits}, id: {self.decode_data})"
 
     @dataclass
     class Alu:
@@ -548,11 +596,11 @@ class ExStage:
 
     @classmethod
     def _run_rtype(
-        cls, inst: DecodedInst, reg_file: RegFile
+        cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
         # read rs1, rs2
         src_regs, regs_ex = reg_file.read_srcregs(
-            rs1_idx=inst.r.rs1, rs2_idx=inst.r.rs2
+            rs1_idx=decode_data.operand.r.rs1, rs2_idx=decode_data.operand.r.rs2
         )
         if regs_ex is not None:
             return None, regs_ex
@@ -646,18 +694,23 @@ class ExStage:
                 else src_regs.rs1,
             ),
         }
-        alu = table.get(inst.r.funct3, None)
+        alu = table.get(decode_data.inst_type, None)
         if alu is None:
             # Decodeできていればここには来ないはず
-            logging.warning(f"Unknown instruction type: {inst.r.funct3=}")
+            logging.warning(f"Unknown instruction type: {decode_data.r.funct3=}")
             return None, ExceptionCode.ILLEGAL_INST
         # 例外の有無とセットでALU実行
         ex_ex = alu.check_exception()
         rd_data = alu.calc()
         # shiftrやaddで超えるケースがあるのでmask
         rd_data &= (1 << SysAddr.NUM_WORD_BITS) - 1
-        # WB stageでの下記戻しのみ指定
-        return ExStage.Result(id_ret=inst.id_ret, writeback_rd=rd_data), ex_ex
+        # WB stageでの書き戻しのみ指定
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.WRITEBACK,
+            writeback_idx=decode_data.operand.r.rd,
+            writeback_data=rd_data,
+        ), ex_ex
 
     @classmethod
     def run(
@@ -665,7 +718,10 @@ class ExStage:
         decode_data: IdStage.Result,
         reg_file: RegFile,
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
-        table: Dict[InstFmt, Callable[[DecodedInst, RegFile], ExceptionCode | None]] = {
+        table: Dict[
+            InstFmt, Callable[[IdStage.Result, RegFile], ExceptionCode | None]
+        ] = {
+            InstFmt.NOP: cls._run_rtype,  # ADDI 0,0,0
             InstFmt.R: cls._run_rtype,
             # InstFmt.I: cls._run_itype,
             # InstFmt.S: cls._run_stype,
@@ -677,16 +733,13 @@ class ExStage:
             # InstFmt.I_ENV: cls._run_itype,
             # InstFmt.R_ATOMIC: cls._run_atomic,
         }
-        dst = table.get(decode_data.i_fmt, None)
+        dst = table.get(decode_data.inst_fmt, None)
         # 未定義命令
         if dst is None:
-            logging.warning(f"Unknown instruction format: {decode_data.i_fmt=}")
+            logging.warning(f"Unknown instruction format: {decode_data.inst_fmt=}")
             return None, ExceptionCode.ILLEGAL_INST
         # 命令実行
-        ex_ret, ex_ex = dst(decode_data.i_data, reg_file)
-        return ExStage.Result(id_ret=decode_data), ex_ex
-
-        pass
+        return dst(decode_data, reg_file)
 
 
 class MemStage:
@@ -754,7 +807,7 @@ class Core:
         """
         # IF: Instruction Fetch
         if_data, if_ex = IfStage.run(pc=self.pc, slave=self.slave)
-        logging.debug(f"[{self.cycles}][IF] {if_data=} {if_ex=}")
+        logging.debug(f"[{self.cycles}][IF] {if_data} {if_ex=}")
         if if_ex is not None:
             logging.warning(f"Fetch Error: {if_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {if_ex=}")
@@ -762,7 +815,7 @@ class Core:
 
         # ID: Instruction Decode
         id_data, id_ex = IdStage.run(fetch_data=if_data)
-        logging.debug(f"[{self.cycles}][ID] {id_data=} {id_ex=}")
+        logging.debug(f"[{self.cycles}][ID] {id_data} {id_ex=}")
         if id_ex is not None:
             logging.warning(f"Decode Error: {id_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {id_ex=}")
@@ -770,7 +823,7 @@ class Core:
 
         # EX: Execute
         ex_data, ex_ex = ExStage.run(decode_data=id_data, reg_file=self.regs)
-        logging.debug(f"[{self.cycles}][EX] {ex_data=} {ex_ex=}")
+        logging.debug(f"[{self.cycles}][EX] {ex_data} {ex_ex=}")
         if ex_ex is not None:
             logging.warning(f"Execute Error: {ex_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {ex_ex=}")
@@ -778,7 +831,7 @@ class Core:
 
         # MEM: Memory Access
         mem_data, mem_ex = MemStage.run(exec_data=ex_data, slave=self.slave)
-        logging.debug(f"[{self.cycles}][MEM] {mem_data=} {mem_ex=}")
+        logging.debug(f"[{self.cycles}][MEM] {mem_data} {mem_ex=}")
         if mem_ex is not None:
             logging.warning(f"Memory Access Error: {mem_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {mem_ex=}")
@@ -786,7 +839,7 @@ class Core:
 
         # WB: WriteBack
         wb_data, wb_ex = WbStage.run(mem_data=mem_data)
-        logging.debug(f"[{self.cycles}][WB] {wb_data=} {wb_ex=}")
+        logging.debug(f"[{self.cycles}][WB] {wb_data} {wb_ex=}")
         if wb_ex is not None:
             logging.warning(f"WriteBack Error: {wb_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {wb_ex=}")
