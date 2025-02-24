@@ -1,33 +1,40 @@
 import enum
 import logging
-from ctypes import LittleEndianStructure, LittleEndianUnion, c_uint
+from ctypes import LittleEndianStructure, LittleEndianUnion, c_uint32
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Tuple
 
 from emu.mem import BusSlave, SysAddr
 
 
-class CoreException(enum.Enum):
+@enum.unique
+class ExceptionCode(enum.Enum):
     """
     CPU例外の種類
     """
 
-    # 命令アクセス例外
-    INST_ACCESS = enum.auto()
-    # 命令デコード例外
-    INST_DECODE = enum.auto()
-    # 命令実行例外
-    INST_EXECUTE = enum.auto()
-    # データアクセス例外
-    DATA_ACCESS = enum.auto()
-    # ecall
-    ENV_CALL = enum.auto()
-    # ebreak
-    ENV_BREAK = enum.auto()
-    # 割り込み
-    INTERRUPT = enum.auto()
-    # トラップ
-    TRAP = enum.auto()
+    INST_ADDR_MISALIGN = 0
+    INST_ACCESS_FAILT = enum.auto()
+    ILLEGAL_INST = enum.auto()
+    BREAKPOINT = enum.auto()
+    LOAD_ACCESS_MISALIGN = enum.auto()
+    LOAD_ACCESS_FAULT = enum.auto()
+    STORE_AMO_ADDR_MISALIGN = enum.auto()
+    STORE_AMO_ACCESS_FAULT = enum.auto()
+    ENV_CALL_U = enum.auto()
+    ENV_CALL_S = enum.auto()
+    ENV_CALL_H = enum.auto()
+    ENV_CALL_M = enum.auto()
+
+
+@enum.unique
+class InterruptCode(enum.Enum):
+    """
+    CPU割り込みの種類
+    """
+
+    SOFTWARE = 0
+    TIMER = enum.auto()
 
 
 @dataclass
@@ -51,11 +58,6 @@ class RegFile:
     # 汎用レジスタ32本
     regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * 32)
 
-    # register本数
-    num_regs_nax: int = 32
-    # E Extensionの場合、レジスタ本数制限が入る
-    num_regs_current: int = 32
-
     def clear(self) -> None:
         """
         Clear all registers
@@ -64,7 +66,7 @@ class RegFile:
 
     def read(
         self, addr: SysAddr.AddrU32
-    ) -> Tuple[SysAddr.DataU32, CoreException | None]:
+    ) -> Tuple[SysAddr.DataU32, ExceptionCode | None]:
         """
         Read a register
         """
@@ -72,15 +74,11 @@ class RegFile:
         # zero register
         if addr == 0:
             return 0
-        # invalid register address
-        if addr >= self.num_regs_current:
-            logging.warning(f"Invalid register address: {addr=}")
-            return 0, CoreException.REG_ACCESS
         return self.regs[addr], None
 
     def write(
         self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
-    ) -> CoreException | None:
+    ) -> ExceptionCode | None:
         """
         Write a register
         """
@@ -88,10 +86,6 @@ class RegFile:
         # zero register
         if addr == 0:
             return
-        # invalid register address
-        if addr >= self.num_regs_current:
-            logging.warning(f"Invalid register address: {addr=}")
-            return CoreException.REG_ACCESS
         self.regs[addr] = data
         return None
 
@@ -111,13 +105,13 @@ class InstFetch:
     @staticmethod
     def run(
         pc: SysAddr.AddrU32, slave: BusSlave
-    ) -> Tuple["InstFetch.Result", CoreException | None]:
-        exception: CoreException | None = None
+    ) -> Tuple["InstFetch.Result", ExceptionCode | None]:
+        exception: ExceptionCode | None = None
         # 命令データ取得
         inst_data, access_ret = slave.read(pc)
         if access_ret is not None:
             logging.warning(f"Failed to read instruction: {pc=}, {access_ret=}")
-            exception = CoreException.INST_ACCESS
+            exception = ExceptionCode.INST_ACCESS_FAILT
         return InstFetch.Result(pc, inst_data), exception
 
 
@@ -231,31 +225,31 @@ class InstType(enum.Enum):
 class InstCommon(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("reserved", c_uint, 25),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("reserved", c_uint32, 25),
     ]
 
 
 class InstRType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("funct7", c_uint, 7),
-        ("rs2", c_uint, 5),
-        ("rs1", c_uint, 5),
-        ("funct3", c_uint, 3),
-        ("rd", c_uint, 5),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("rd", c_uint32, 5),
+        ("funct3", c_uint32, 3),
+        ("rs1", c_uint32, 5),
+        ("rs2", c_uint32, 5),
+        ("funct7", c_uint32, 7),
     ]
 
 
 class InstIType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("imm_11_0", c_uint, 12),
-        ("rs1", c_uint, 5),
-        ("funct3", c_uint, 3),
-        ("rd", c_uint, 5),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("rd", c_uint32, 5),
+        ("funct3", c_uint32, 3),
+        ("rs1", c_uint32, 5),
+        ("imm_11_0", c_uint32, 12),
     ]
 
     @property
@@ -266,12 +260,12 @@ class InstIType(LittleEndianStructure):
 class InstSType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("imm_11_5", c_uint, 7),
-        ("rs2", c_uint, 5),
-        ("rs1", c_uint, 5),
-        ("funct3", c_uint, 3),
-        ("imm_4_0", c_uint, 5),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("imm_4_0", c_uint32, 5),
+        ("funct3", c_uint32, 3),
+        ("rs1", c_uint32, 5),
+        ("rs2", c_uint32, 5),
+        ("imm_11_5", c_uint32, 7),
     ]
 
     @property
@@ -282,14 +276,14 @@ class InstSType(LittleEndianStructure):
 class InstBType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("imm_12", c_uint, 1),
-        ("imm_10_5", c_uint, 6),
-        ("rs2", c_uint, 5),
-        ("rs1", c_uint, 5),
-        ("funct3", c_uint, 3),
-        ("imm_4_1", c_uint, 4),
-        ("imm_11", c_uint, 1),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("imm_11", c_uint32, 1),
+        ("imm_4_1", c_uint32, 4),
+        ("funct3", c_uint32, 3),
+        ("rs1", c_uint32, 5),
+        ("rs2", c_uint32, 5),
+        ("imm_10_5", c_uint32, 6),
+        ("imm_12", c_uint32, 1),
     ]
 
     @property
@@ -305,9 +299,9 @@ class InstBType(LittleEndianStructure):
 class InstUType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("imm_31_12", c_uint, 20),
-        ("rd", c_uint, 5),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("rd", c_uint32, 5),
+        ("imm_31_12", c_uint32, 20),
     ]
 
     @property
@@ -318,12 +312,12 @@ class InstUType(LittleEndianStructure):
 class InstJType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("imm_20", c_uint, 1),
-        ("imm_10_1", c_uint, 10),
-        ("imm_11", c_uint, 1),
-        ("imm_19_12", c_uint, 8),
-        ("rd", c_uint, 5),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("rd", c_uint32, 5),
+        ("imm_19_12", c_uint32, 8),
+        ("imm_11", c_uint32, 1),
+        ("imm_10_1", c_uint32, 10),
+        ("imm_20", c_uint32, 1),
     ]
 
     @property
@@ -339,21 +333,21 @@ class InstJType(LittleEndianStructure):
 class InstAtomicType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
-        ("funct5", c_uint, 5),
-        ("aq", c_uint, 1),
-        ("rl", c_uint, 1),
-        ("rs2", c_uint, 5),
-        ("rs1", c_uint, 5),
-        ("funct3", c_uint, 3),
-        ("rd", c_uint, 5),
-        ("opcode", c_uint, 7),
+        ("opcode", c_uint32, 7),
+        ("rd", c_uint32, 5),
+        ("funct3", c_uint32, 3),
+        ("rs1", c_uint32, 5),
+        ("rs2", c_uint32, 5),
+        ("rl", c_uint32, 1),
+        ("aq", c_uint32, 1),
+        ("funct5", c_uint32, 5),
     ]
 
 
 class DecodedInst(LittleEndianUnion):
     _pack_ = 1
     _fields_ = [
-        ("raw", c_uint),
+        ("raw", c_uint32),
         ("common", InstCommon),
         ("r", InstRType),
         ("i", InstIType),
@@ -386,7 +380,7 @@ class InstDecode:
     @classmethod
     def decode(
         cls, if_ret: InstFetch.Result
-    ) -> Tuple["InstDecode.Result" | None, CoreException | None]:
+    ) -> Tuple["InstDecode.Result" | None, ExceptionCode | None]:
         # 命令デコード
         i_data = DecodedInst()
         i_data.raw = if_ret.raw
@@ -476,11 +470,11 @@ class InstDecode:
                 i_type = table[i_data.atomic.funct5]
             else:
                 logging.warning(f"Unknown instruction format: {i_fmt=}")
-                return None, CoreException.INST_DECODE
+                return None, ExceptionCode.ILLEGAL_INST
 
             if i_type is None or i_type not in InstType:
                 logging.warning(f"Unknown instruction type: {i_type=}")
-                return None, CoreException.INST_DECODE
+                return None, ExceptionCode.ILLEGAL_INST
 
             return cls.Result(
                 pc=if_ret.pc,
@@ -492,153 +486,7 @@ class InstDecode:
 
         except ValueError as e:
             logging.warning(f"Unknown instruction: {if_ret.raw=:08x}")
-            return None, CoreException.INST_DECODE
-
-
-@dataclass
-class ExStage:
-    """
-    EX stageの結果
-    """
-
-    # rdへの書き戻しがあれば値をいれる
-    write_rd_from_alu: SysAddr.DataU32 | None = None
-    # メモリからデータ取得が必要であればアドレスをいれる
-    # addr -> reg_addr
-    write_rd_from_mem: Tuple[SysAddr.AddrU32, int] | None = None
-    # メモリへの書き込みが必要であればアドレスとデータをいれる
-    # addr -> data
-    write_mem_from_alu: Tuple[SysAddr.AddrU32, SysAddr.DataU32] | None = None
-    # PCの更新が必要であればアドレスをいれる
-    write_pc: SysAddr.AddrU32 | None = None
-    # TODO: ecall/ebreakなどの例外が発生した場合の処理を追加
-
-    @classmethod
-    def _execute_r(
-        cls,
-        inst_data: IdStage,
-        regs: RegFile,
-        reg_bit_width: int,
-    ) -> Tuple["ExStage", CoreException | None]:
-        """
-        Execute R-Type instruction
-        """
-        exception: CoreException | None = None
-        # resouce
-        rs1_data, rs1_ex = regs.read(inst_data.rs1)
-        rs2_data, rs2_ex = regs.read(inst_data.rs2)
-        rs1_data_se = inst_data.sign_ext(rs1_data, reg_bit_width)
-        rs2_data_se = inst_data.sign_ext(rs2_data, reg_bit_width)
-        rd_data = 0
-        # 命令ごと分岐: inst_type -> func[[] -> rd_data]
-        table: Dict[
-            InstType,
-            Callable[SysAddr.DataU32],
-        ] = {
-            # Base Integer
-            InstType.ADD: lambda: rs1_data_se + rs2_data_se,
-            InstType.SUB: lambda: rs1_data_se - rs2_data_se,
-            InstType.XOR: lambda: rs1_data ^ rs2_data,
-            InstType.OR: lambda: rs1_data | rs2_data,
-            InstType.AND: lambda: rs1_data & rs2_data,
-            InstType.SLL: lambda: rs1_data_se << rs2_data_se,
-            InstType.SRL: lambda: rs1_data >> rs2_data,
-            InstType.SRA: lambda: rs1_data_se >> rs2_data,
-            InstType.SLT: lambda: rs1_data_se < rs2_data_se,
-            InstType.SLTU: lambda: rs1_data < rs2_data,
-            # Multiply Extension
-            InstType.MUL: lambda: rs1_data_se * rs2_data_se,
-            InstType.MULH: lambda: rs1_data_se * rs2_data_se >> reg_bit_width,
-            InstType.MULSU: lambda: (rs1_data * rs2_data_se) >> reg_bit_width,
-            InstType.MULU: lambda: (rs1_data * rs2_data) >> reg_bit_width,
-            InstType.DIV: lambda: rs1_data_se // rs2_data_se,
-            InstType.DIVU: lambda: rs1_data // rs2_data,
-            InstType.REM: lambda: rs1_data_se % rs2_data_se,
-            InstType.REMU: lambda: rs1_data % rs2_data,
-        }
-        # Decodeできていればここには来ないはず
-        if inst_data.type not in table:
-            raise NotImplementedError(f"Unknown instruction: {inst_data.type=}")
-
-        # TODO: 実行時例外の対応
-        rd_data = table[inst_data.type]()
-        # shiftrやaddで超えるケースがあるのでmask
-        rd_data &= (1 << reg_bit_width) - 1
-        return rd_data
-
-    def _execute_i(
-        cls,
-        inst_data: IdStage,
-        regs: RegFile,
-        reg_bit_width: int,
-    ) -> SysAddr.DataU32:
-        """
-        Execute I-Type instruction
-        """
-        exception: CoreException | None = None
-        # resouce
-        rs1_data, rs1_ex = regs.read(inst_data.rs1)
-        rs1_data_se = inst_data.sign_ext(rs1_data, reg_bit_width)
-        rd_data = 0
-        # 命令ごと分岐: inst_type -> func[[] -> rd_data]
-        table: Dict[
-            InstType,
-            Callable[SysAddr.DataU32],
-        ] = {
-            InstType.ADDI: lambda: rs1_data_se + inst_data.imm_se,
-            InstType.XORI: lambda: rs1_data ^ inst_data.imm,
-            InstType.ORI: lambda: rs1_data | inst_data.imm,
-            InstType.ANDI: lambda: rs1_data & inst_data.imm,
-            InstType.SLLI: lambda: rs1_data_se << inst_data.imm_lower,
-            InstType.SRLI: lambda: rs1_data >> inst_data.imm_lower,
-            InstType.SRAI: lambda: rs1_data_se >> inst_data.imm_lower,
-            InstType.SLTI: lambda: rs1_data_se < inst_data.imm_se,
-            InstType.SLTIU: lambda: rs1_data < inst_data.imm,
-        }
-        # Decodeできていればここには来ないはず
-        if inst_data.type not in table:
-            raise NotImplementedError(f"Unknown instruction: {inst_data.type=}")
-
-        # TODO: 実行時例外の対応
-        rd_data = table[inst_data.type]()
-        # shiftrやaddで超えるケースがあるのでmask
-        rd_data &= (1 << reg_bit_width) - 1
-        return rd_data
-
-    @classmethod
-    def execute(
-        cls, inst_data: IdStage, regs: RegFile, reg_bit_width: int
-    ) -> Tuple["ExStage", CoreException | None]:
-        """
-        execute stage: Decodeした結果とPC(inst_dataに内包)/Reg値から命令を実行
-        Reg/Memの書き戻しは現時点ではせず、MEM/WBへの指示として返す
-        """
-        # 命令タイプ: inst_fmt -> func
-        table: Dict[
-            InstFmt,
-            Callable[[IdStage, RegFile, int], "ExStage"],
-        ] = {
-            InstFmt.R: cls._execute_r,
-            InstFmt.I: cls._execute_i,
-            # InstFmt.I: cls._decode_i,
-            # InstFmt.S: cls._decode_s,
-            # InstFmt.B: cls._decode_b,
-            # InstFmt.U_LUI: cls._decode_u,
-            # InstFmt.U_AUIPC: cls._decode_u,
-            # InstFmt.J_JAL: cls._decode_j,
-            # InstFmt.R_ATOMIC: cls._decode_r_atomic,
-        }
-        dst = table.get(inst_data.fmt, None)
-
-        # TODO: exのArithmetic ExやEcallなどもあるので例外処理いれる
-        # if dst is None:
-        #     # Decodeできていればここには来ないはず
-        #     raise NotImplementedError(
-        #         f"Unknown instruction format: {inst_data.inst_fmt=}"
-        #     )
-
-        # reg_bit_width は Compressed Extension がある場合に動的に切り替わるのでMemSpace直参照せず、引数で受ける
-        return dst(inst_data, regs, reg_bit_width)
+            return None, ExceptionCode.ILLEGAL_INST
 
 
 class Core:
@@ -648,36 +496,36 @@ class Core:
         self.config = config
         # RegisterFile & PC
         self.regs = RegFile()
-        self.pc: SysAddr.AddrU32 = 0
+        self.pc: SysAddr.AddrU32 = SysAddr.AddrU32(0)
 
     def reset(self) -> None:
         """
         Reset the core
         """
         self.regs.clear()
-        self.pc = self.config.init_pc
+        self.pc = SysAddr.AddrU32(self.config.init_pc)
 
     def step_cyc(self) -> None:
         """
         1cyc分進める
         """
         # IF: Instruction Fetch
-        if_data, if_ex = IfStage.run(pc=self.pc, slave=self.slave)
+        if_data, if_ex = InstFetch.run(pc=self.pc, slave=self.slave)
         if if_ex is not None:
             logging.warning(f"Fetch Error: {if_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {if_ex=}")
 
         # ID: Instruction Decode
-        id_data, id_ex = IdStage.run(fetch_data=if_data)
+        id_data, id_ex = InstDecode.run(fetch_data=if_data)
         if id_ex is not None:
             logging.warning(f"Decode Error: {id_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {id_ex=}")
 
         # EX: Execute
-        ex_data, ex_ex = ExStage.run(id_data, self.regs, self.config.reg_bit_width)
-        if ex_ex is not None:
-            logging.warning(f"Execute Error: {ex_ex=}")
-            raise RuntimeError(f"TODO: impl Exception Handler: {ex_ex=}")
+        # ex_data, ex_ex = ExStage.run(id_data, self.regs, self.config.reg_bit_width)
+        # if ex_ex is not None:
+        #     logging.warning(f"Execute Error: {ex_ex=}")
+        #     raise RuntimeError(f"TODO: impl Exception Handler: {ex_ex=}")
         # MEM
         # TODO: Implement MEM stage
         # WB
