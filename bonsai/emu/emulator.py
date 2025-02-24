@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from typing import List
 
 from bonsai.emu.mem import BusArbiter, BusArbiterEntry, FixSizeRam, UartModule
 
@@ -25,10 +26,10 @@ class Emulator:
         )
 
         # Main Program Memory
-        program_data = (
-            Path(args.program_binary_path).read_bytes()
+        program_data: List[int] | None = (
+            list([ord(x) for x in Path(args.program_binary_path).read_bytes()])
             if args.program_binary_path
-            else b""
+            else None
         )
         ram0 = FixSizeRam(name="ram0", size=args.ram_size, init_data=program_data)
 
@@ -59,7 +60,7 @@ class Emulator:
         parser.add_argument(
             "--ram_size",
             type=int,
-            default=64 * 1024,  # 64KB
+            default=128 * 1024,  # 128KB
             help="Set the size of the RAM",
         )
         parser.add_argument(
