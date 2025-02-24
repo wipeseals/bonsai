@@ -59,7 +59,7 @@ class IfStage:
         raw: SysAddr.DataU32
 
         def __repr__(self) -> str:
-            return f"IF(pc: 0x{self.pc:016x}, raw: 0x{self.raw:08x})"
+            return f"[IF ](pc: 0x{self.pc:016x}, raw: 0x{self.raw:08x})"
 
     @staticmethod
     def run(
@@ -358,7 +358,24 @@ class IdStage:
         operand: Operand
 
         def __repr__(self) -> str:
-            return f"ID(type: {self.inst_type}, fmt: {self.inst_fmt}, if: {self.fetch_data})"
+            if self.inst_fmt in [InstFmt.NOP, InstFmt.R]:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.r.rd}, rs1: {self.operand.r.rs1}, rs2: {self.operand.r.rs2})"
+            elif self.inst_fmt == InstFmt.I:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.i.rd}, rs1: {self.operand.i.rs1}, imm: {self.operand.i.imm:08x})"
+            elif self.inst_fmt == InstFmt.S:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.s.rs1}, rs2: {self.operand.s.rs2}, imm: {self.operand.s.imm:08x})"
+            elif self.inst_fmt == InstFmt.B:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.b.rs1}, rs2: {self.operand.b.rs2}, imm: {self.operand.b.imm:08x})"
+            elif self.inst_fmt in [InstFmt.U_LUI, InstFmt.U_AUIPC]:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.u.rd}, imm: {self.operand.u.imm:08x})"
+            elif self.inst_fmt in [InstFmt.J_JAL, InstFmt.J_JALR]:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.j.rd}, imm: {self.operand.j.imm:08x})"
+            elif self.inst_fmt == InstFmt.I_ENV:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, imm: {self.operand.i.imm:08x})"
+            elif self.inst_fmt == InstFmt.R_ATOMIC:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.atomic.rd}, rs1: {self.operand.atomic.rs1}, rs2: {self.operand.atomic.rs2})"
+            else:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type})"
 
     @classmethod
     def run(
@@ -581,13 +598,13 @@ class ExStage:
             if self.action_bits & AfterExAction.WRITEBACK:
                 assert self.writeback_idx is not None
                 assert self.writeback_data is not None
-                return f"EX(action: {self.action_bits}, rd: {self.writeback_idx}, data: {self.writeback_data}, id: {self.decode_data})"
+                return f"[EX ](action: {self.action_bits}, rd: {self.writeback_idx}, data: {self.writeback_data})"
             if self.action_bits & AfterExAction.LOAD_WRITEBACK:
                 assert self.writeback_idx is not None
-                return f"EX(action: {self.action_bits}, rd: {self.writeback_idx}, id: {self.decode_data})"
+                return f"[EX ](action: {self.action_bits}, rd: {self.writeback_idx})"
             else:
                 # TODO:
-                return f"EX(action: {self.action_bits}, id: {self.decode_data})"
+                return f"[EX ](action: {self.action_bits})"
 
     @dataclass
     class Alu:
@@ -750,7 +767,10 @@ class MemStage:
     @dataclass
     class Result:
         # ex result
-        ex_ret: ExStage.Result
+        exec_data: ExStage.Result
+
+        def __repr__(self) -> str:
+            return "[MEM](TODO)"
 
     @classmethod
     def run(
@@ -758,7 +778,8 @@ class MemStage:
         exec_data: ExStage.Result,
         slave: BusSlave,
     ) -> Tuple[Optional["MemStage.Result"], ExceptionCode | None]:
-        pass
+        # TODO: implement
+        return MemStage.Result(exec_data=exec_data), None
 
 
 class WbStage:
@@ -769,13 +790,17 @@ class WbStage:
     @dataclass
     class Result:
         # mem result
-        mem_ret: MemStage.Result
+        mem_data: MemStage.Result
+
+        def __repr__(self) -> str:
+            return "[WB ](TODO)"
 
     @classmethod
     def run(
         cls, mem_data: MemStage.Result
     ) -> Tuple[Optional["WbStage.Result"], ExceptionCode | None]:
-        pass
+        # TODO: implement
+        return WbStage.Result(mem_data=mem_data), None
 
 
 @dataclass
@@ -805,9 +830,13 @@ class Core:
         Execute one cycle
         非pipeline single cycle processor想定
         """
+        logging.debug(
+            "###################################################################################################################################"
+        )
+
         # IF: Instruction Fetch
         if_data, if_ex = IfStage.run(pc=self.pc, slave=self.slave)
-        logging.debug(f"[{self.cycles}][IF] {if_data} {if_ex=}")
+        logging.debug(f"[{self.cycles}]{if_data}")
         if if_ex is not None:
             logging.warning(f"Fetch Error: {if_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {if_ex=}")
@@ -815,7 +844,7 @@ class Core:
 
         # ID: Instruction Decode
         id_data, id_ex = IdStage.run(fetch_data=if_data)
-        logging.debug(f"[{self.cycles}][ID] {id_data} {id_ex=}")
+        logging.debug(f"[{self.cycles}]{id_data}")
         if id_ex is not None:
             logging.warning(f"Decode Error: {id_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {id_ex=}")
@@ -823,7 +852,7 @@ class Core:
 
         # EX: Execute
         ex_data, ex_ex = ExStage.run(decode_data=id_data, reg_file=self.regs)
-        logging.debug(f"[{self.cycles}][EX] {ex_data} {ex_ex=}")
+        logging.debug(f"[{self.cycles}]{ex_data}")
         if ex_ex is not None:
             logging.warning(f"Execute Error: {ex_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {ex_ex=}")
@@ -831,7 +860,7 @@ class Core:
 
         # MEM: Memory Access
         mem_data, mem_ex = MemStage.run(exec_data=ex_data, slave=self.slave)
-        logging.debug(f"[{self.cycles}][MEM] {mem_data} {mem_ex=}")
+        logging.debug(f"[{self.cycles}]{mem_data}")
         if mem_ex is not None:
             logging.warning(f"Memory Access Error: {mem_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {mem_ex=}")
@@ -839,7 +868,7 @@ class Core:
 
         # WB: WriteBack
         wb_data, wb_ex = WbStage.run(mem_data=mem_data)
-        logging.debug(f"[{self.cycles}][WB] {wb_data} {wb_ex=}")
+        logging.debug(f"[{self.cycles}]{wb_data}")
         if wb_ex is not None:
             logging.warning(f"WriteBack Error: {wb_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {wb_ex=}")
