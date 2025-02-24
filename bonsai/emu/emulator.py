@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 from typing import List
 
+from bonsai.emu.core import Core, CoreConfig
 from bonsai.emu.mem import BusArbiter, BusArbiterEntry, FixSizeRam, UartModule
 
 
@@ -44,7 +45,12 @@ class Emulator:
             ],
         )
 
+        # Core
+        core = Core(config=CoreConfig(init_pc=args.ram_start_addr), slave=bus0)
+        core.reset()
         # TODO: Implement the emulator
+        for _ in range(100):
+            core.step()
 
     @classmethod
     def setup_parser(cls, parser: argparse.ArgumentParser) -> argparse.ArgumentParser:

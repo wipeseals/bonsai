@@ -1,7 +1,6 @@
 import enum
 import logging
 from abc import ABC, abstractmethod
-from ctypes import c_int32, c_uint32
 from dataclasses import dataclass
 from enum import auto
 from typing import List, Literal, Tuple
@@ -13,11 +12,11 @@ class SysAddr:
     """
 
     # Address Space
-    AddrU32 = c_uint32
+    AddrU32 = int
     # Data (u32)
-    DataU32 = c_uint32
+    DataU32 = int
     # Data (s32)
-    DataS32 = c_int32
+    DataS32 = int
     # ワードあたりのバイト数
     NUM_WORD_BYTES = 4
 
