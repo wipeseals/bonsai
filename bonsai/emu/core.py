@@ -488,7 +488,9 @@ class ExStage:
 
     @classmethod
     def run(
-        cls, decode_data: IdStage.Result
+        cls,
+        decode_data: IdStage.Result,
+        reg_file: RegFile,
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
         pass
 
@@ -552,6 +554,10 @@ class Core:
         self.cycles = 0
 
     def step(self) -> None:
+        """
+        Execute one cycle
+        非pipeline single cycle processor想定
+        """
         # IF: Instruction Fetch
         if_data, if_ex = IfStage.run(pc=self.pc, slave=self.slave)
         logging.debug(f"[{self.cycles}][IF] {if_data=} {if_ex=}")
@@ -569,7 +575,7 @@ class Core:
         assert id_data is not None
 
         # EX: Execute
-        ex_data, ex_ex = ExStage.run(decode_data=id_data)
+        ex_data, ex_ex = ExStage.run(decode_data=id_data, reg_file=self.regs)
         logging.debug(f"[{self.cycles}][EX] {ex_data=} {ex_ex=}")
         if ex_ex is not None:
             logging.warning(f"Execute Error: {ex_ex=}")
