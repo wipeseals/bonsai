@@ -14,6 +14,7 @@ RUN pip install uv
 # install dependencies
 COPY . /app
 RUN uv python install
+RUN uv venv .venv.docker
 RUN uv sync --all-extras --dev
 
 # run tests

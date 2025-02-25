@@ -6,5 +6,4 @@ git clone --recursive https://github.com/riscv/riscv-tests
 cd riscv-tests && \
     autoconf && \
     ./configure --prefix=$RISCV/target && \
-    make -j$(nproc) && \
-    make install
+    make

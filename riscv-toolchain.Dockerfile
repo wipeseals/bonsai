@@ -46,3 +46,5 @@ RUN apt install -y \
 RUN cd riscv-gnu-toolchain && \
     ./configure $TOOLCHAIN_CONFIGURE && \
     make -j$(nproc)
+
+CMD ["bash"]
