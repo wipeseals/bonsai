@@ -10,6 +10,7 @@ ENV RISCV=/opt/riscv
 ENV ARCH=rv32ima
 ENV ABI=ilp32
 ENV PATH=$RISCV/bin:$PATH
+ENV TOOLCHAIN_CONFIGURE="--prefix=$RISCV --with-arch=$ARCH --with-abi=$ABI --enable-multilib --enable-qemu-system"
 ENV DEBIAN_FRONTEND=noninteractive
 
 # 必要なパッケージをインストール
@@ -43,7 +44,7 @@ RUN apt install -y \
 
 # riscv-gnu-toolchainのインストール
 RUN cd riscv-gnu-toolchain && \
-    ./configure --prefix=$RISCV --with-arch=$ARCH --with-abi=$ABI --enable-multilib --enable-qemu-system && \
+    ./configure $TOOLCHAIN_CONFIGURE && \
     make -j$(nproc)
 
 
