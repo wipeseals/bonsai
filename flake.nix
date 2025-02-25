@@ -21,6 +21,9 @@
           ];
           shellHook = ''
             echo "Welcome to the bonsai project!"
+            uv python install
+            uv venv nix-venv
+            uv sync --all-extras --dev
           '';
         };
       };
