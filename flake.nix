@@ -13,16 +13,13 @@
       x86_64-linux = {
         default = pkgs.mkShell {
           buildInputs = [
-            pkgs.pypy310
-            pkgs.uv
-            pkgs.yosys
-            pkgs.sby
-            pkgs.verilator
+            pkgs.python310
           ];
           shellHook = ''
             echo "Welcome to the bonsai project!"
-            uv python install
-            uv venv nix-venv
+            pip install --user uv --break-system-packages
+            uv venv .venv.nix
+            source .venv.nix/bin/activate
             uv sync --all-extras --dev
           '';
         };
