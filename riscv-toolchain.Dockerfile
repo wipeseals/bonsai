@@ -46,25 +46,3 @@ RUN apt install -y \
 RUN cd riscv-gnu-toolchain && \
     ./configure $TOOLCHAIN_CONFIGURE && \
     make -j$(nproc)
-
-
-# riscv-isa-simのインストール
-RUN apt install -y \
-    device-tree-compiler \
-    libboost-regex-dev \
-    libboost-system-dev
-RUN git clone https://github.com/riscv-software-src/riscv-isa-sim.git && \
-    mkdir build && \
-    cd build && \
-    ../riscv-isa-sim/configure --prefix=$RISCV && \
-    make -j$(nproc) && \
-    make install
-
-# riscv-pkのインストール
-RUN git clone https://github.com/riscv-software-src/riscv-pk.git
-RUN cd riscv-pk && \
-    mkdir build && \
-    cd build && \
-    ../configure --prefix=$RISCV --with-target=riscv32-unknown-elf --with-arch=rv32i_zicsr_zifence && \
-    make -j$(nproc) && \
-    make install
