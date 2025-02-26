@@ -18,11 +18,31 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
+      - name: Cache python env
+        id: cache-python-env
+        uses: actions/cache@v4
+        with:
+          path: "**/.venv"
+          key: python-${{ hashFiles('**/.venv') }}
+
       - name: Set up Python
+        if: ${{ steps.cache-python-env.outputs.cache-hit != 'true' }}
         run: uv python install
 
       - name: Install the project
+        if: ${{ steps.cache-python-env.outputs.cache-hit != 'true' }}
         run: uv sync --all-extras --dev
+
+      - name: Cache risv-tests
+        id: cache-riscv-tests
+        uses: actions/cache@v4
+        with:
+          path: riscv-tests
+          key: riscv-tests
+
+      - name: Build risv-tests
+        if: ${{ steps.cache-riscv-tests.outputs.cache-hit != 'true' }}
+        run: docker compose run build-riscv-tests
 
       - name: Run tests
         run: uv run pytest -v -rfs
