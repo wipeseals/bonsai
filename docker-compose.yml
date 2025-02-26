@@ -20,4 +20,12 @@ services:
     volumes:
       - ./misc:/app/misc:ro
       - ./riscv-tests:/app/riscv-tests:rw
-    command: bash -c "cd /app/riscv-tests && chmod +x /app/misc/build-riscv-tests.sh && /app/misc/build-riscv-tests.sh"
+    command: >
+      bash -c "
+      cd /app/riscv-tests && 
+      git clone --recursive https://github.com/riscv/riscv-tests && 
+      cd riscv-tests && 
+      autoconf && 
+      ./configure --prefix=$RISCV/target && 
+      make XLEN=32 isa
+      "
