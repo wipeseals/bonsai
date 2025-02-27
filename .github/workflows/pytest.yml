@@ -33,16 +33,5 @@ jobs:
         if: ${{ steps.cache-python-env.outputs.cache-hit != 'true' }}
         run: uv sync --all-extras --dev
 
-      - name: Cache risv-tests
-        id: cache-riscv-tests
-        uses: actions/cache@v4
-        with:
-          path: riscv-tests
-          key: riscv-tests
-
-      - name: Build risv-tests
-        if: ${{ steps.cache-riscv-tests.outputs.cache-hit != 'true' }}
-        run: docker compose run build-riscv-tests
-
       - name: Run tests
         run: uv run pytest -v -rfs
