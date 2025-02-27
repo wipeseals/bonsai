@@ -171,7 +171,7 @@ class FixSizeRam(BusSlave):
         self,
         name: str,
         size: int,
-        init_data: List[SysAddr.DataU32] | None = None,
+        init_data: List[SysAddr.DataU32] | bytes | None = None,
     ):
         self.name = name
         self.size = size
@@ -182,6 +182,15 @@ class FixSizeRam(BusSlave):
         if init_data is not None:
             if isinstance(init_data, list):
                 self.datas[: len(init_data)] = init_data
+            elif isinstance(init_data, bytes):
+                for idx in range(len(init_data) // SysAddr.NUM_WORD_BYTES):
+                    self.datas[idx] = int.from_bytes(
+                        init_data[
+                            idx * SysAddr.NUM_WORD_BYTES : (idx + 1)
+                            * SysAddr.NUM_WORD_BYTES
+                        ],
+                        "little",
+                    )
             else:
                 raise ValueError(f"Unsupported init_data type: {type(init_data)}")
 
@@ -542,3 +551,15 @@ class BusArbiter(BusSlave):
             entry.slave.dump(
                 dump_file_path, format, offset_addr=offset_addr + entry.start_addr
             )
+
+    def describe(self) -> str:
+        dst = f"# BusArbiter: {self.name}\n"
+        dst += f" - min_addr: 0x{self.min_addr:016x}\n"
+        dst += f" - max_addr: 0x{self.max_addr:016x}\n"
+        dst += f" - size: {self.size} bytes\n"
+        dst += f" - {len(self._entries)} entries\n"
+        for i, entry in enumerate(self._entries):
+            dst += (
+                f"  - entry {i}: 0x{entry.start_addr:016x} {entry.slave.get_name()}\n"
+            )
+        return dst
