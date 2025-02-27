@@ -46,12 +46,13 @@ wheels = [
 
 [[package]]
 name = "bonsai"
-version = "0.0.post322+dirty"
+version = "0.0.post331+dirty"
 source = { editable = "." }
 dependencies = [
     { name = "amaranth", extra = ["builtin-yosys"] },
     { name = "amaranth-boards" },
     { name = "asyncio" },
+    { name = "pyelftools" },
     { name = "rich" },
     { name = "taskipy" },
     { name = "textual" },
@@ -76,6 +77,7 @@ requires-dist = [
     { name = "amaranth", extras = ["builtin-yosys"], git = "https://github.com/amaranth-lang/amaranth.git" },
     { name = "amaranth-boards", git = "https://github.com/amaranth-lang/amaranth-boards.git" },
     { name = "asyncio", specifier = ">=3.4.3" },
+    { name = "pyelftools", specifier = ">=0.32" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "taskipy", specifier = ">=1.14.1" },
     { name = "textual", specifier = ">=1.0.0" },
@@ -435,6 +437,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/47/da/99f4345d4ddf2845cb5b5bd0d93d554e84542d116934fde07a0c50bd4e9f/psutil-6.1.1-cp36-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:33431e84fee02bc84ea36d9e2c4a6d395d479c9dd9bba2376c1f6ee8f3a4e0b3", size = 289017 },
     { url = "https://files.pythonhosted.org/packages/38/53/bd755c2896f4461fd4f36fa6a6dcb66a88a9e4b9fd4e5b66a77cf9d4a584/psutil-6.1.1-cp37-abi3-win32.whl", hash = "sha256:eaa912e0b11848c4d9279a93d7e2783df352b082f40111e078388701fd479e53", size = 250602 },
     { url = "https://files.pythonhosted.org/packages/7b/d7/7831438e6c3ebbfa6e01a927127a6cb42ad3ab844247f3c5b96bea25d73d/psutil-6.1.1-cp37-abi3-win_amd64.whl", hash = "sha256:f35cfccb065fff93529d2afb4a2e89e363fe63ca1e4a5da22b603a85833c2649", size = 254444 },
+]
+
+[[package]]
+name = "pyelftools"
+version = "0.32"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/ab/33968940b2deb3d92f5b146bc6d4009a5f95d1d06c148ea2f9ee965071af/pyelftools-0.32.tar.gz", hash = "sha256:6de90ee7b8263e740c8715a925382d4099b354f29ac48ea40d840cf7aa14ace5", size = 15047199 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/43/700932c4f0638c3421177144a2e86448c0d75dbaee2c7936bda3f9fd0878/pyelftools-0.32-py3-none-any.whl", hash = "sha256:013df952a006db5e138b1edf6d8a68ecc50630adbd0d83a2d41e7f846163d738", size = 188525 },
 ]
 
 [[package]]
