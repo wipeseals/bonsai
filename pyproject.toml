@@ -10,6 +10,7 @@ dependencies = [
     "taskipy>=1.14.1",
     "rich>=13.9.4",
     "textual>=1.0.0",
+    "pyelftools>=0.32",
 ]
 dynamic = ["version"]
 
@@ -49,9 +50,9 @@ local_scheme = "dirty-tag"
 
 [tool.taskipy.tasks]
 run = "python bonsai/main.py"
-run-sim = "python bonsai/main.py sim"
-run-build = "python bonsai/main.py build"
-run-emu = "python bonsai/main.py emu"
+sim = "python bonsai/main.py sim"
+build = "python bonsai/main.py build"
+emu = "python bonsai/main.py emu"
 check = "ruff check --fix"
 format = "ruff format"
 mypy = "mypy bonsai"
@@ -95,3 +96,4 @@ disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 cache_dir = ".pytest_cache"
+testpaths = ["tests"]

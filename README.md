@@ -56,15 +56,26 @@ options:
 
 
 # Run simulation
-task test     
+task test
 ============================================================ test session starts ============================================================
 platform win32 -- Python 3.10.14[pypy-7.3.17-final], pytest-8.3.4, pluggy-1.5.0 -- E:\repos\bonsai\.venv\Scripts\python.exe
 cachedir: .pytest_cache
-metadata: {'Python': '3.10.14', 'Platform': 'Windows-10-10.0.26100-SP0', 'Packages': {'pytest': '8.3.4', 'pluggy': '1.5.0'}, 'Plugins': {'cov': '6.0.0', 'html': '4.1.1', 'metadata': '3.1.1', 'mock': '3.14.0'}, 'JAVA_HOME': 'C:\\Program Files\\Microsoft\\jdk-17.0.14.7-hotspot\\'}     
+metadata: {'Python': '3.10.14', 'Platform': 'Windows-10-10.0.26100-SP0', 'Packages': {'pytest': '8.3.4', 'pluggy': '1.5.0'}, 'Plugins': {'cov': '6.0.0', 'html': '4.1.1', 'metadata': '3.1.1', 'mock': '3.14.0'}, 'JAVA_HOME': 'C:\\Program Files\\Microsoft\\jdk-17.0.14.7-hotspot\\'}
 rootdir: E:\repos\bonsai
 configfile: pyproject.toml
 plugins: cov-6.0.0, html-4.1.1, metadata-3.1.1, mock-3.14.0
 ...
+```
+
+## Test binary
+
+### `misc/riscv-tests-isa`
+
+The `isa` tests built from [riscv-software-src/riscv-tests](https://github.com/riscv-software-src/riscv-tests). You can generate them using the following steps:
+
+```bash
+$ docker compose run build-riscv-tests
+$ find ./riscv-tests/isa/rv32*-*-* -type f | xargs -I {}  cp {} ./misc/riscv-tests-isa/
 ```
 
 ## License

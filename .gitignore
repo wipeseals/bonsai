@@ -2,7 +2,7 @@
 .mypy_cache
 .pytest_cache
 .ruff_cache
-.venv
+.venv*
 *.v
 *.vcd
 __pycache__
@@ -12,3 +12,4 @@ coverage.xml
 dist_*
 htmlcov/
 site/
+riscv-tests

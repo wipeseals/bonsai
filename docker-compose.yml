@@ -18,6 +18,13 @@ services:
       context: .
       dockerfile: riscv-toolchain.Dockerfile
     volumes:
-      - ./misc:/app/.misc
-      - ./riscv-tests:/app/riscv-tests
-    command: bash -c "cd /app/riscv-tests && chmod +x build-riscv-tests.sh && ./build-riscv-tests.sh"
+      - ./riscv-tests:/app/riscv-tests:rw
+    command: >
+      bash -c "
+      cd /app/riscv-tests && 
+      git clone --recursive https://github.com/riscv/riscv-tests && 
+      cd riscv-tests && 
+      autoconf && 
+      ./configure --prefix=$RISCV/target && 
+      make XLEN=32 isa
+      "

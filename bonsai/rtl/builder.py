@@ -52,7 +52,7 @@ class RtlBuild:
         )
 
     @classmethod
-    def build(cls, args: argparse.Namespace) -> None:
+    def main(cls, args: argparse.Namespace) -> None:
         platform: Optional[Platform] = SUPPORT_DEVICES.get(args.platform, None)
 
         if platform is not None:
@@ -115,5 +115,5 @@ class RtlBuild:
             default="dist_rtl",
             help="The directory to store RTL files",
         )
-        parser.set_defaults(func=cls.build)
+        parser.set_defaults(func=cls.main)
         return parser
