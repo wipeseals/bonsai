@@ -84,6 +84,7 @@ class EmulatorBootInfo:
     entry_point_addr: int
     uart_start_addr: int
     mem_entries: List[MemEntry]
+    elffile: ELFFile | None = None
 
     @classmethod
     def from_elffile(
@@ -93,6 +94,7 @@ class EmulatorBootInfo:
             entry_point_addr=elffile.header["e_entry"],
             uart_start_addr=uart_start_addr,
             mem_entries=MemEntry.from_elffile(elffile),
+            elffile=elffile,
         )
 
     @classmethod
