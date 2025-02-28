@@ -37,7 +37,7 @@ class RegionFlag(enum.Flag):
 
 
 @dataclass
-class MemoryMap:
+class MemEntry:
     name: str
     region: RegionFlag
     phys_addr: int
@@ -48,7 +48,7 @@ class MemoryMap:
 
     def __repr__(self) -> str:
         return (
-            f"MemoryMap("
+            f"MemEntry("
             f"name='{self.name}', "
             f"region={self.region}, "
             f"phys_addr={hex(self.phys_addr)}, "
@@ -59,7 +59,7 @@ class MemoryMap:
         )
 
     @classmethod
-    def from_elffile(cls, elffile: ELFFile) -> List["MemoryMap"]:
+    def from_elffile(cls, elffile: ELFFile) -> List["MemEntry"]:
         dst = []
         for segment, section in zip(elffile.iter_segments(), elffile.iter_sections()):
             logging.debug(f"type: {segment['p_type']} name: {section.name} {segment}")
@@ -83,7 +83,7 @@ class MemoryMap:
 class EmulatorBootInfo:
     entry_point_addr: int
     uart_start_addr: int
-    segments: List[MemoryMap]
+    mem_entries: List[MemEntry]
 
     @classmethod
     def from_elffile(
@@ -92,7 +92,7 @@ class EmulatorBootInfo:
         return cls(
             entry_point_addr=elffile.header["e_entry"],
             uart_start_addr=uart_start_addr,
-            segments=MemoryMap.from_elffile(elffile),
+            mem_entries=MemEntry.from_elffile(elffile),
         )
 
     @classmethod
@@ -107,9 +107,9 @@ class EmulatorBootInfo:
         dst = "# EmulatorBootInfo\n"
         dst += f" - entry_point_addr : 0x{self.entry_point_addr:016x}\n"
         dst += f" - uart_start_addr  : 0x{self.uart_start_addr:016x}\n"
-        dst += f" - {len(self.segments)} segments\n"
-        for i, segment in enumerate(self.segments):
-            dst += f"  - segment {i}: {segment}\n"
+        dst += f" - {len(self.mem_entries)} mem_entries\n"
+        for i, mem_entry in enumerate(self.mem_entries):
+            dst += f"  - {i}: {mem_entry}\n"
         return dst
 
 
@@ -141,7 +141,7 @@ class Emulator:
             )
         )
         # RAM or ROM
-        for i, segment in enumerate(bootinfo.segments):
+        for i, segment in enumerate(bootinfo.mem_entries):
             mem = (
                 FixSizeRam(
                     name=f"ram{i}_{segment.name}",
