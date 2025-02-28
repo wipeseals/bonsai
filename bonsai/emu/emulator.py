@@ -62,6 +62,9 @@ class MemoryMap:
     def from_elffile(cls, elffile: ELFFile) -> List["MemoryMap"]:
         dst = []
         for segment, section in zip(elffile.iter_segments(), elffile.iter_sections()):
+            logging.debug(f"type: {segment['p_type']} name: {section.name} {segment}")
+            if not segment["p_type"] == "PT_LOAD":
+                continue
             dst.append(
                 cls(
                     name=section.name,
@@ -139,28 +142,26 @@ class Emulator:
         )
         # RAM or ROM
         for i, segment in enumerate(bootinfo.segments):
-            if segment.type == "PT_LOAD":
-                # select write or read only
-                mem = (
-                    FixSizeRam(
-                        name=f"ram{i}_{segment.name}",
-                        size=segment.mem_size,
-                        init_data=segment.data,
-                    )
-                    if segment.region & RegionFlag.WRITABLE
-                    else FixSizeRom(
-                        name=f"rom{i}_{segment.name}",
-                        size=segment.mem_size,
-                        init_data=segment.data,
-                    )
+            mem = (
+                FixSizeRam(
+                    name=f"ram{i}_{segment.name}",
+                    size=segment.mem_size,
+                    init_data=segment.data,
                 )
-                # append to bus entries
-                entries.append(
-                    BusArbiterEntry(
-                        slave=mem,
-                        start_addr=segment.phys_addr,
-                    )
+                if segment.region & RegionFlag.WRITABLE
+                else FixSizeRom(
+                    name=f"rom{i}_{segment.name}",
+                    size=segment.mem_size,
+                    init_data=segment.data,
                 )
+            )
+            # append to bus entries
+            entries.append(
+                BusArbiterEntry(
+                    slave=mem,
+                    start_addr=segment.phys_addr,
+                )
+            )
 
         # Main Bus
         bus0 = BusArbiter(
