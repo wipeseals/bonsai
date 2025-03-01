@@ -977,6 +977,18 @@ class ExStage:
             writeback_data=imm,
         ), None
 
+    def _run_u_auipc(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # AUIPC: rd = pc + imm[31:12]
+        imm = decode_data.operand.u.imm << 12
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.WRITEBACK,
+            writeback_idx=decode_data.operand.u.rd,
+            writeback_data=decode_data.fetch_data.pc + imm,
+        ), None
+
     @classmethod
     def run(
         cls,
@@ -992,7 +1004,7 @@ class ExStage:
             InstGroup.S_STORE: cls._run_s_store,
             InstGroup.B_BRANCH: cls._run_b_branch,
             InstGroup.U_LUI: cls._run_u_lui,
-            # InstFmt.U_AUIPC: cls._run_utype,
+            InstGroup.U_AUIPC: cls._run_u_auipc,
             # InstFmt.J_JAL: cls._run_jtype,
             # InstFmt.J_JALR: cls._run_jtype,
             # InstFmt.I_ENV: cls._run_itype,
