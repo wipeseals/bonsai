@@ -611,16 +611,27 @@ class ExStage:
         branch_cond: Optional[bool] = None
 
         def __repr__(self) -> str:
+            repr_str = f"[EX ](action: {self.action_bits}"
             if self.action_bits & AfterExAction.WRITEBACK:
                 assert self.writeback_idx is not None
                 assert self.writeback_data is not None
-                return f"[EX ](action: {self.action_bits}, rd: {self.writeback_idx}, data: {self.writeback_data})"
+                repr_str += (
+                    f", rd: {self.writeback_idx}, data: 0x{self.writeback_data:08x}"
+                )
             if self.action_bits & AfterExAction.LOAD:
                 assert self.writeback_idx is not None
-                return f"[EX ](action: {self.action_bits}, rd: {self.writeback_idx})"
-            else:
-                # TODO:
-                return f"[EX ](action: {self.action_bits})"
+                repr_str += f", rd: {self.writeback_idx}"
+            if self.action_bits & AfterExAction.STORE:
+                assert self.mem_addr is not None
+                assert self.mem_size is not None
+                assert self.mem_data is not None
+                repr_str += f", mem_addr: 0x{self.mem_addr:08x}, mem_size: {self.mem_size}, mem_data: 0x{self.mem_data:08x}"
+            if self.action_bits & AfterExAction.BRANCH:
+                assert self.branch_addr is not None
+                assert self.branch_cond is not None
+                repr_str += f", branch_addr: 0x{self.branch_addr:08x}, branch_cond: {self.branch_cond}"
+            repr_str += ")"
+            return repr_str
 
     @dataclass
     class ArithmeticLogicalOp:
@@ -971,6 +982,7 @@ class ExStage:
             branch_cond=branch_op.branch_cond(),
         ), None
 
+    @classmethod
     def _run_u_lui(
         cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
@@ -983,6 +995,7 @@ class ExStage:
             writeback_data=imm,
         ), None
 
+    @classmethod
     def _run_u_auipc(
         cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
@@ -995,6 +1008,7 @@ class ExStage:
             writeback_data=decode_data.fetch_data.pc + imm,
         ), None
 
+    @classmethod
     def _run_j_jal(
         cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
@@ -1009,6 +1023,7 @@ class ExStage:
             branch_cond=True,
         ), None
 
+    @classmethod
     def _run_i_jalr(
         cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
@@ -1048,13 +1063,13 @@ class ExStage:
             # InstFmt.I_ENV: cls._run_itype,
             # InstFmt.R_ATOMIC: cls._run_atomic,
         }
-        dst = table.get(decode_data.inst_fmt, None)
+        execution_function = table.get(decode_data.inst_fmt, None)
         # 未定義命令
-        if dst is None:
+        if execution_function is None:
             logging.warning(f"Unknown instruction format: {decode_data.inst_fmt=}")
             return None, ExceptionCode.ILLEGAL_INST
         # 命令実行
-        return dst(decode_data, reg_file)
+        return execution_function(decode_data, reg_file)
 
 
 class MemStage:
