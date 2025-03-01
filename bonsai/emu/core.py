@@ -75,9 +75,10 @@ class IfStage:
 
 
 @enum.unique
-class InstFmt(enum.Enum):
+class InstGroup(enum.Enum):
     """
-    Instruction format
+    Instruction Group
+    format別機能別に分割
     """
 
     # 0 => ADDI 0 0 にしておく
@@ -86,15 +87,16 @@ class InstFmt(enum.Enum):
     # Register:
     # - Arithmetic (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
     # - Multiply (MUL, MULH, MULHSU, MULU, DIV, DIVU, REM, REMU)
-    R = 0b0110011
+    R_ARITHMETIC = 0b0110011
     # Immediate:
     # - Arithmetic (ADDI, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
+    I_ARITHMETIC = 0b0010011
     # - Load (LB, LH, LW, LBU, LHU)
-    I = 0b0010011
+    I_LOAD = 0b0000011
     # Store(SB, SH, SW)
-    S = 0b0100011
+    S_STORE = 0b0100011
     # Branch(BEQ, BNE, BLT, BGE, BLTU, BGEU)
-    B = 0b1100011
+    B_BRANCH = 0b1100011
     # Load Upper Immediate
     U_LUI = 0b0110111
     # Add Upper Immediate to PC
@@ -351,28 +353,28 @@ class IdStage:
         # IF結果
         fetch_data: IfStage.Result
         # 命令フォーマット
-        inst_fmt: InstFmt
+        inst_fmt: InstGroup
         # 命令タイプ
         inst_type: InstType
         # 命令データ
         operand: Operand
 
         def __repr__(self) -> str:
-            if self.inst_fmt in [InstFmt.NOP, InstFmt.R]:
+            if self.inst_fmt in [InstGroup.NOP, InstGroup.R_ARITHMETIC]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.r.rd}, rs1: {self.operand.r.rs1}, rs2: {self.operand.r.rs2})"
-            elif self.inst_fmt == InstFmt.I:
+            elif self.inst_fmt == InstGroup.I_ARITHMETIC:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.i.rd}, rs1: {self.operand.i.rs1}, imm: {self.operand.i.imm:08x})"
-            elif self.inst_fmt == InstFmt.S:
+            elif self.inst_fmt == InstGroup.S_STORE:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.s.rs1}, rs2: {self.operand.s.rs2}, imm: {self.operand.s.imm:08x})"
-            elif self.inst_fmt == InstFmt.B:
+            elif self.inst_fmt == InstGroup.B_BRANCH:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.b.rs1}, rs2: {self.operand.b.rs2}, imm: {self.operand.b.imm:08x})"
-            elif self.inst_fmt in [InstFmt.U_LUI, InstFmt.U_AUIPC]:
+            elif self.inst_fmt in [InstGroup.U_LUI, InstGroup.U_AUIPC]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.u.rd}, imm: {self.operand.u.imm:08x})"
-            elif self.inst_fmt in [InstFmt.J_JAL, InstFmt.J_JALR]:
+            elif self.inst_fmt in [InstGroup.J_JAL, InstGroup.J_JALR]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.j.rd}, imm: {self.operand.j.imm:08x})"
-            elif self.inst_fmt == InstFmt.I_ENV:
+            elif self.inst_fmt == InstGroup.I_ENV:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, imm: {self.operand.i.imm:08x})"
-            elif self.inst_fmt == InstFmt.R_ATOMIC:
+            elif self.inst_fmt == InstGroup.R_ATOMIC:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.atomic.rd}, rs1: {self.operand.atomic.rs1}, rs2: {self.operand.atomic.rs2})"
             else:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type})"
@@ -386,8 +388,8 @@ class IdStage:
         decode_data.raw = fetch_data.raw
         # 命令フォーマット/タイプ
         inst_type: InstType | None = None
-        inst_fmt = InstFmt(decode_data.common.opcode)
-        if inst_fmt in [InstFmt.NOP, InstFmt.R]:  # NOP=ADDI 0,0,0
+        inst_fmt = InstGroup(decode_data.common.opcode)
+        if inst_fmt in [InstGroup.NOP, InstGroup.R_ARITHMETIC]:  # NOP=ADDI 0,0,0
             # funct3 -> (funct7 -> type)
             table: Dict[int, Dict[int, InstType]] = {
                 0b000: {0b0000000: InstType.ADD, 0b0100000: InstType.SUB},
@@ -402,7 +404,7 @@ class IdStage:
             inst_type = table.get(decode_data.r.funct3, {}).get(
                 decode_data.r.funct7, None
             )
-        elif inst_fmt == InstFmt.I:
+        elif inst_fmt == InstGroup.I_ARITHMETIC:
             # funct3 -> (imm[11:5] -> type)
             imm_11_5 = decode_data.i.imm_11_0 >> 5
             table: Dict[int, Callable[InstType]] = {
@@ -416,7 +418,7 @@ class IdStage:
                 0b111: lambda: InstType.ANDI,
             }
             inst_type = table.get(decode_data.i.funct3, lambda x: None)()
-        elif inst_fmt == InstFmt.S:
+        elif inst_fmt == InstGroup.S_STORE:
             # funct3 -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.SB,
@@ -424,7 +426,7 @@ class IdStage:
                 0b010: InstType.SW,
             }
             inst_type = table.get(decode_data.s.funct3, None)
-        elif inst_fmt == InstFmt.B:
+        elif inst_fmt == InstGroup.B_BRANCH:
             # funct3 -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.BEQ,
@@ -435,28 +437,28 @@ class IdStage:
                 0b111: InstType.BGEU,
             }
             inst_type = table.get(decode_data.b.funct3, None)
-        elif inst_fmt in [InstFmt.U_LUI, InstFmt.U_AUIPC]:
+        elif inst_fmt in [InstGroup.U_LUI, InstGroup.U_AUIPC]:
             # opcode -> type
             table: Dict[int, InstType] = {
-                InstFmt.U_LUI: InstType.LUI,
-                InstFmt.U_AUIPC: InstType.AUIPC,
+                InstGroup.U_LUI: InstType.LUI,
+                InstGroup.U_AUIPC: InstType.AUIPC,
             }
             inst_type = table.get(inst_fmt, None)
-        elif inst_fmt in [InstFmt.J_JAL, InstFmt.J_JALR]:
+        elif inst_fmt in [InstGroup.J_JAL, InstGroup.J_JALR]:
             # opcode -> type
             table: Dict[int, InstType] = {
-                InstFmt.J_JAL: InstType.JAL,
-                InstFmt.J_JALR: InstType.JALR,
+                InstGroup.J_JAL: InstType.JAL,
+                InstGroup.J_JALR: InstType.JALR,
             }
             inst_type = table.get(inst_fmt, None)
-        elif inst_fmt == InstFmt.I_ENV:
+        elif inst_fmt == InstGroup.I_ENV:
             # imm -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.ECALL,
                 0b001: InstType.EBREAK,
             }
             inst_type = table.get(decode_data.i.imm)
-        elif inst_fmt == InstFmt.R_ATOMIC:
+        elif inst_fmt == InstGroup.R_ATOMIC:
             # funct5 -> type
             table: Dict[int, InstType] = {
                 0b00000: InstType.LR_W,
@@ -593,6 +595,9 @@ class ExStage:
         # rd regに書き戻すデータあれば設定
         writeback_idx: Optional[int] = None
         writeback_data: Optional[int] = None
+        # MEM Read/Write時のアドレス/Size
+        mem_addr: Optional[int] = None
+        mem_size: Optional[int] = None
 
         def __repr__(self) -> str:
             if self.action_bits & AfterExAction.WRITEBACK:
@@ -607,12 +612,17 @@ class ExStage:
                 return f"[EX ](action: {self.action_bits})"
 
     @dataclass
-    class Alu:
-        check_exception: Callable[[], ExceptionCode | None]
+    class ArithmeticOp:
         calc: Callable[[], SysAddr.DataU32]
+        check_exception: Callable[[], ExceptionCode | None] = None
+
+    @dataclass
+    class LoadOp:
+        mem_addr: Callable[[], SysAddr.DataU32]
+        mem_size: Callable[[], SysAddr.DataU32]
 
     @classmethod
-    def _run_rtype(
+    def _run_r_arithmetic(
         cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
         # read rs1, rs2
@@ -623,62 +633,55 @@ class ExStage:
             return None, regs_ex
         rd_data = 0
         # 命令ごと分岐: inst_type -> func[[] -> rd_data]
-        table: Dict[InstType, ExStage.Alu] = {
+        table: Dict[InstType, ExStage.ArithmeticOp] = {
             # Base Integer
-            InstType.ADD: ExStage.Alu(
-                check_exception=lambda: None,
+            InstType.ADD: ExStage.ArithmeticOp(
                 calc=lambda: src_regs.rs1_sext + src_regs.rs2_sext,
             ),
-            InstType.SUB: ExStage.Alu(
-                check_exception=lambda: None,
+            InstType.SUB: ExStage.ArithmeticOp(
                 calc=lambda: src_regs.rs1_sext - src_regs.rs2_sext,
             ),
-            InstType.XOR: ExStage.Alu(
-                check_exception=lambda: None, calc=lambda: src_regs.rs1 ^ src_regs.rs2
+            InstType.XOR: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 ^ src_regs.rs2
             ),
-            InstType.OR: ExStage.Alu(
-                check_exception=lambda: None, calc=lambda: src_regs.rs1 | src_regs.rs2
+            InstType.OR: ExStage.ArithmeticOp(calc=lambda: src_regs.rs1 | src_regs.rs2),
+            InstType.AND: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 & src_regs.rs2
             ),
-            InstType.AND: ExStage.Alu(
-                check_exception=lambda: None, calc=lambda: src_regs.rs1 & src_regs.rs2
-            ),
-            InstType.SLL: ExStage.Alu(
+            InstType.SLL: ExStage.ArithmeticOp(
                 check_exception=lambda: None,
                 calc=lambda: src_regs.rs1_sext << src_regs.rs2_sext,
             ),
-            InstType.SRL: ExStage.Alu(
-                check_exception=lambda: None, calc=lambda: src_regs.rs1 >> src_regs.rs2
+            InstType.SRL: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 >> src_regs.rs2
             ),
-            InstType.SRA: ExStage.Alu(
+            InstType.SRA: ExStage.ArithmeticOp(
                 check_exception=lambda: None,
                 calc=lambda: src_regs.rs1_sext >> src_regs.rs2,
             ),
-            InstType.SLT: ExStage.Alu(
+            InstType.SLT: ExStage.ArithmeticOp(
                 check_exception=lambda: None,
                 calc=lambda: src_regs.rs1_sext < src_regs.rs2_sext,
             ),
-            InstType.SLTU: ExStage.Alu(
-                check_exception=lambda: None, calc=lambda: src_regs.rs1 < src_regs.rs2
+            InstType.SLTU: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 < src_regs.rs2
             ),
             # Multiply Extension
-            InstType.MUL: ExStage.Alu(
-                check_exception=None, calc=lambda: src_regs.rs1_sext * src_regs.rs2_sext
+            InstType.MUL: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1_sext * src_regs.rs2_sext
             ),
-            InstType.MULH: ExStage.Alu(
-                check_exception=None,
+            InstType.MULH: ExStage.ArithmeticOp(
                 calc=lambda: (src_regs.rs1_sext * src_regs.rs2_sext)
                 >> SysAddr.NUM_WORD_BITS,
             ),
-            InstType.MULSU: ExStage.Alu(
-                check_exception=None,
+            InstType.MULSU: ExStage.ArithmeticOp(
                 calc=lambda: (src_regs.rs1 * src_regs.rs2_sext)
                 >> SysAddr.NUM_WORD_BITS,
             ),
-            InstType.MULU: ExStage.Alu(
-                check_exception=None,
+            InstType.MULU: ExStage.ArithmeticOp(
                 calc=lambda: (src_regs.rs1 * src_regs.rs2) >> SysAddr.NUM_WORD_BITS,
             ),
-            InstType.DIV: ExStage.Alu(
+            InstType.DIV: ExStage.ArithmeticOp(
                 check_exception=None
                 if src_regs.rs2_sext != 0
                 else ExceptionCode.ILLEGAL_INST,
@@ -686,7 +689,7 @@ class ExStage:
                 if src_regs.rs2_sext != 0
                 else 0xFFFFFFFF,
             ),
-            InstType.DIVU: ExStage.Alu(
+            InstType.DIVU: ExStage.ArithmeticOp(
                 check_exception=None
                 if src_regs.rs2 != 0
                 else ExceptionCode.ILLEGAL_INST,
@@ -694,7 +697,7 @@ class ExStage:
                 if src_regs.rs2 != 0
                 else 0xFFFFFFFF,
             ),
-            InstType.REM: ExStage.Alu(
+            InstType.REM: ExStage.ArithmeticOp(
                 check_exception=None
                 if src_regs.rs2_sext != 0
                 else ExceptionCode.ILLEGAL_INST,
@@ -702,7 +705,7 @@ class ExStage:
                 if src_regs.rs2_sext != 0
                 else src_regs.rs1_sext,
             ),
-            InstType.REMU: ExStage.Alu(
+            InstType.REMU: ExStage.ArithmeticOp(
                 check_exception=None
                 if src_regs.rs2 != 0
                 else ExceptionCode.ILLEGAL_INST,
@@ -730,17 +733,130 @@ class ExStage:
         ), ex_ex
 
     @classmethod
+    def _run_i_arithmetic(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # read rs1
+        src_regs, regs_ex = reg_file.read_srcregs(
+            rs1_idx=decode_data.operand.i.rs1, rs2_idx=0
+        )
+        if regs_ex is not None:
+            return None, regs_ex
+        rd_data = 0
+        # 命令ごと分岐: inst_type -> func[[] -> rd_data]
+        table: Dict[InstType, ExStage.ArithmeticOp] = {
+            # Base Integer
+            InstType.ADDI: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1_sext + decode_data.operand.i.imm_sext,
+            ),
+            InstType.SLLI: ExStage.ArithmeticOp(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext << decode_data.operand.i.imm,
+            ),
+            InstType.SLTI: ExStage.ArithmeticOp(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext < decode_data.operand.i.imm_sext,
+            ),
+            InstType.SLTIU: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 < decode_data.operand.i.imm,
+            ),
+            InstType.XORI: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 ^ decode_data.operand.i.imm,
+            ),
+            InstType.SRLI: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 >> decode_data.operand.i.imm,
+            ),
+            InstType.SRAI: ExStage.ArithmeticOp(
+                check_exception=lambda: None,
+                calc=lambda: src_regs.rs1_sext >> decode_data.operand.i.imm,
+            ),
+            InstType.ORI: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 | decode_data.operand.i.imm,
+            ),
+            InstType.ANDI: ExStage.ArithmeticOp(
+                calc=lambda: src_regs.rs1 & decode_data.operand.i.imm,
+            ),
+        }
+        alu = table.get(decode_data.inst_type, None)
+        if alu is None:
+            # Decodeできていればここには来ないはず
+            logging.warning(f"Unknown instruction type: {decode_data.i.funct3=}")
+            return None, ExceptionCode.ILLEGAL_INST
+        # 例外の有無とセットでALU実行
+        ex_ex = alu.check_exception()
+        rd_data = alu.calc()
+        # WB stageでの書き戻しのみ指定
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.WRITEBACK,
+            writeback_idx=decode_data.operand.i.rd,
+            writeback_data=rd_data,
+        ), ex_ex
+
+    @classmethod
+    def _run_i_load(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # read rs1
+        src_regs, regs_ex = reg_file.read_srcregs(
+            rs1_idx=decode_data.operand.i.rs1, rs2_idx=0
+        )
+        if regs_ex is not None:
+            # rs1 read error
+            return None, regs_ex
+
+        # mem sizeは命令で分岐
+        table: Dict[InstType, ExStage.LoadOp] = {
+            InstType.LB: ExStage.LoadOp(
+                mem_addr=lambda: src_regs.rs1 + decode_data.operand.i.imm_sext,
+                mem_size=lambda: 1,
+            ),
+            InstType.LH: ExStage.LoadOp(
+                mem_addr=lambda: src_regs.rs1 + decode_data.operand.i.imm_sext,
+                mem_size=lambda: 2,
+            ),
+            InstType.LW: ExStage.LoadOp(
+                mem_addr=lambda: src_regs.rs1 + decode_data.operand.i.imm_sext,
+                mem_size=lambda: 4,
+            ),
+            InstType.LBU: ExStage.LoadOp(
+                mem_addr=lambda: src_regs.rs1 + decode_data.operand.i.imm_sext,
+                mem_size=lambda: 1,
+            ),
+            InstType.LHU: ExStage.LoadOp(
+                mem_addr=lambda: src_regs.rs1 + decode_data.operand.i.imm_sext,
+                mem_size=lambda: 2,
+            ),
+        }
+        load = table.get(decode_data.inst_type, None)
+        if load is None:
+            # Decodeできていればここには来ないはず
+            logging.warning(f"Unknown instruction type: {decode_data.i.funct3=}")
+            return None, ExceptionCode.ILLEGAL_INST
+        # MEM stageで実行する内容を決定
+        mem_addr, mem_size = load.mem_addr(), load.mem_size
+        # MEM stageでの読み出しを指定
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.LOAD_WRITEBACK,
+            mem_addr=mem_addr,
+            mem_size=mem_size,
+            writeback_idx=decode_data.operand.i.rd,
+            writeback_data=None,  # MEM stageで決定
+        ), None
+
+    @classmethod
     def run(
         cls,
         decode_data: IdStage.Result,
         reg_file: RegFile,
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
         table: Dict[
-            InstFmt, Callable[[IdStage.Result, RegFile], ExceptionCode | None]
+            InstGroup, Callable[[IdStage.Result, RegFile], ExceptionCode | None]
         ] = {
-            InstFmt.NOP: cls._run_rtype,  # ADDI 0,0,0
-            InstFmt.R: cls._run_rtype,
-            # InstFmt.I: cls._run_itype,
+            InstGroup.NOP: cls._run_r_arithmetic,  # ADDI 0,0,0
+            InstGroup.R_ARITHMETIC: cls._run_r_arithmetic,
+            InstGroup.I_ARITHMETIC: cls._run_i_arithmetic,
             # InstFmt.S: cls._run_stype,
             # InstFmt.B: cls._run_btype,
             # InstFmt.U_LUI: cls._run_utype,
