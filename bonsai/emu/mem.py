@@ -559,7 +559,5 @@ class BusArbiter(BusSlave):
         dst += f" - size: {self.size} bytes\n"
         dst += f" - {len(self._entries)} entries\n"
         for i, entry in enumerate(self._entries):
-            dst += (
-                f"  - entry {i}: 0x{entry.start_addr:016x} {entry.slave.get_name()}\n"
-            )
+            dst += f"  - entry {i}: 0x{entry.start_addr:016x}-0x{entry.end_addr:016x} {entry.slave.get_name()} ({entry.size} bytes)\n"
         return dst

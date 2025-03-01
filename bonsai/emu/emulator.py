@@ -1,10 +1,11 @@
 import argparse
+import enum
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-from elftools.elf.constants import SH_FLAGS
+from elftools.elf.constants import P_FLAGS
 from elftools.elf.elffile import ELFFile
 from rich import print
 
@@ -18,48 +19,61 @@ from bonsai.emu.mem import (
 )
 
 
+class RegionFlag(enum.Flag):
+    EXECUTABLE = enum.auto()
+    WRITABLE = enum.auto()
+    READABLE = enum.auto()
+
+    @classmethod
+    def from_p_flags(cls, flags: int) -> "RegionFlag":
+        dst = cls(0)
+        if flags & P_FLAGS.PF_X:
+            dst |= cls.EXECUTABLE
+        if flags & P_FLAGS.PF_W:
+            dst |= cls.WRITABLE
+        if flags & P_FLAGS.PF_R:
+            dst |= cls.READABLE
+        return dst
+
+
 @dataclass
-class MemorySegment:
-    section_name: str
-    type: str
-    offset: int
-    virt_addr: int
+class MemEntry:
+    name: str
+    region: RegionFlag
     phys_addr: int
     file_size: int
     mem_size: int
-    flags: int
     align: int
     data: bytes = b""
 
     def __repr__(self) -> str:
         return (
-            f"ProgramHeader("
-            f"section_name='{self.section_name}', "
-            f"type='{self.type}', "
-            f"offset={hex(self.offset)}, "
-            f"virt_addr={hex(self.virt_addr)}, "
+            f"MemEntry("
+            f"name='{self.name}', "
+            f"region={self.region}, "
             f"phys_addr={hex(self.phys_addr)}, "
             f"file_size={hex(self.file_size)}, "
             f"mem_size={hex(self.mem_size)}, "
-            f"flags={hex(self.flags)}, "
             f"align={hex(self.align)}"
             f")"
         )
 
     @classmethod
-    def from_elffile(cls, elffile: ELFFile) -> List["MemorySegment"]:
+    def from_elffile(cls, elffile: ELFFile) -> List["MemEntry"]:
         dst = []
         for segment, section in zip(elffile.iter_segments(), elffile.iter_sections()):
+            logging.debug(
+                f"type: {segment['p_type']} name:{section.name} paddr:0x{segment['p_paddr']:016x} filesz:0x{segment['p_filesz']:016x} memsz:0x{segment['p_memsz']:016x} align:0x{segment['p_align']:08x}"
+            )
+            if not segment["p_type"] == "PT_LOAD":
+                continue
             dst.append(
                 cls(
-                    section_name=section.name,
-                    type=segment["p_type"],
-                    offset=segment["p_offset"],
-                    virt_addr=segment["p_vaddr"],
+                    name=section.name,
+                    region=RegionFlag.from_p_flags(segment["p_flags"]),
                     phys_addr=segment["p_paddr"],
                     file_size=segment["p_filesz"],
                     mem_size=segment["p_memsz"],
-                    flags=segment["p_flags"],
                     align=segment["p_align"],
                     data=segment.data(),
                 )
@@ -71,7 +85,8 @@ class MemorySegment:
 class EmulatorBootInfo:
     entry_point_addr: int
     uart_start_addr: int
-    segments: List[MemorySegment]
+    mem_entries: List[MemEntry]
+    elffile: ELFFile | None = None
 
     @classmethod
     def from_elffile(
@@ -80,7 +95,8 @@ class EmulatorBootInfo:
         return cls(
             entry_point_addr=elffile.header["e_entry"],
             uart_start_addr=uart_start_addr,
-            segments=MemorySegment.from_elffile(elffile),
+            mem_entries=MemEntry.from_elffile(elffile),
+            elffile=elffile,
         )
 
     @classmethod
@@ -95,9 +111,9 @@ class EmulatorBootInfo:
         dst = "# EmulatorBootInfo\n"
         dst += f" - entry_point_addr : 0x{self.entry_point_addr:016x}\n"
         dst += f" - uart_start_addr  : 0x{self.uart_start_addr:016x}\n"
-        dst += f" - {len(self.segments)} segments\n"
-        for i, segment in enumerate(self.segments):
-            dst += f"  - segment {i}: {segment}\n"
+        dst += f" - {len(self.mem_entries)} mem_entries\n"
+        for i, mem_entry in enumerate(self.mem_entries):
+            dst += f"  - {i}: {mem_entry}\n"
         return dst
 
 
@@ -129,30 +145,27 @@ class Emulator:
             )
         )
         # RAM or ROM
-        for i, segment in enumerate(bootinfo.segments):
-            if segment.type == "PT_LOAD":
-                # select write or read only
-                is_writable = (segment.flags & SH_FLAGS.SHF_WRITE) != 0
-                mem = (
-                    FixSizeRam(
-                        name=f"ram{i}",
-                        size=segment.mem_size,
-                        init_data=segment.data,
-                    )
-                    if is_writable
-                    else FixSizeRom(
-                        name=f"rom{i}",
-                        size=segment.mem_size,
-                        init_data=segment.data,
-                    )
+        for i, segment in enumerate(bootinfo.mem_entries):
+            mem = (
+                FixSizeRam(
+                    name=f"ram{i}_{segment.name}",
+                    size=segment.mem_size,
+                    init_data=segment.data,
                 )
-                # append to bus entries
-                entries.append(
-                    BusArbiterEntry(
-                        slave=mem,
-                        start_addr=segment.phys_addr,
-                    )
+                if segment.region & RegionFlag.WRITABLE
+                else FixSizeRom(
+                    name=f"rom{i}_{segment.name}",
+                    size=segment.mem_size,
+                    init_data=segment.data,
                 )
+            )
+            # append to bus entries
+            entries.append(
+                BusArbiterEntry(
+                    slave=mem,
+                    start_addr=segment.phys_addr,
+                )
+            )
 
         # Main Bus
         bus0 = BusArbiter(
