@@ -62,7 +62,9 @@ class MemEntry:
     def from_elffile(cls, elffile: ELFFile) -> List["MemEntry"]:
         dst = []
         for segment, section in zip(elffile.iter_segments(), elffile.iter_sections()):
-            logging.debug(f"type: {segment['p_type']} name: {section.name} {segment}")
+            logging.debug(
+                f"type: {segment['p_type']} name:{section.name} paddr:0x{segment['p_paddr']:016x} filesz:0x{segment['p_filesz']:016x} memsz:0x{segment['p_memsz']:016x} align:0x{segment['p_align']:08x}"
+            )
             if not segment["p_type"] == "PT_LOAD":
                 continue
             dst.append(
