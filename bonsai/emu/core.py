@@ -85,12 +85,12 @@ class InstGroup(enum.Enum):
     NOP = 0
 
     # Register:
-    # - Arithmetic (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
+    # - Arithmetic/Logical (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
     # - Multiply (MUL, MULH, MULHSU, MULU, DIV, DIVU, REM, REMU)
-    R_ARITHMETIC = 0b0110011
+    R_ARITHMETIC_LOGICAL_MULTIPLY = 0b0110011
     # Immediate:
-    # - Arithmetic (ADDI, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
-    I_ARITHMETIC = 0b0010011
+    # - Arithmetic/Logical (ADDI, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
+    I_ARITHMETIC_LOGICAL = 0b0010011
     # Immediate:
     # - Load (LB, LH, LW, LBU, LHU)
     I_LOAD = 0b0000011
@@ -361,9 +361,12 @@ class IdStage:
         operand: Operand
 
         def __repr__(self) -> str:
-            if self.inst_fmt in [InstGroup.NOP, InstGroup.R_ARITHMETIC]:
+            if self.inst_fmt in [
+                InstGroup.NOP,
+                InstGroup.R_ARITHMETIC_LOGICAL_MULTIPLY,
+            ]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.r.rd}, rs1: {self.operand.r.rs1}, rs2: {self.operand.r.rs2})"
-            elif self.inst_fmt == InstGroup.I_ARITHMETIC:
+            elif self.inst_fmt == InstGroup.I_ARITHMETIC_LOGICAL:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.i.rd}, rs1: {self.operand.i.rs1}, imm: {self.operand.i.imm:08x})"
             elif self.inst_fmt == InstGroup.S_STORE:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.s.rs1}, rs2: {self.operand.s.rs2}, imm: {self.operand.s.imm:08x})"
@@ -390,7 +393,10 @@ class IdStage:
         # 命令フォーマット/タイプ
         inst_type: InstType | None = None
         inst_fmt = InstGroup(decode_data.common.opcode)
-        if inst_fmt in [InstGroup.NOP, InstGroup.R_ARITHMETIC]:  # NOP=ADDI 0,0,0
+        if inst_fmt in [
+            InstGroup.NOP,
+            InstGroup.R_ARITHMETIC_LOGICAL_MULTIPLY,
+        ]:  # NOP=ADDI 0,0,0
             # funct3 -> (funct7 -> type)
             table: Dict[int, Dict[int, InstType]] = {
                 0b000: {0b0000000: InstType.ADD, 0b0100000: InstType.SUB},
@@ -405,7 +411,7 @@ class IdStage:
             inst_type = table.get(decode_data.r.funct3, {}).get(
                 decode_data.r.funct7, None
             )
-        elif inst_fmt == InstGroup.I_ARITHMETIC:
+        elif inst_fmt == InstGroup.I_ARITHMETIC_LOGICAL:
             # funct3 -> (imm[11:5] -> type)
             imm_11_5 = decode_data.i.imm_11_0 >> 5
             table: Dict[int, Callable[InstType]] = {
@@ -567,8 +573,8 @@ class AfterExAction(enum.Flag):
     EX Stage後に実行するアクション
     """
 
-    # Load+WriteBack
-    LOAD_WRITEBACK = enum.auto()
+    # Load
+    LOAD = enum.auto()
     # Store
     STORE = enum.auto()
     # WriteBack
@@ -593,14 +599,14 @@ class ExStage:
         decode_data: IdStage.Result
         # next actions
         action_bits: AfterExAction
-        # LOAD_WRITEBACK | WRITEBACK | LOAD: WB stage
+        # WB stage
         writeback_idx: Optional[int] = None
         writeback_data: Optional[int] = None
-        # LOAD | STORE: MEM stage
+        # MEM stage
         mem_addr: Optional[int] = None
         mem_size: Optional[int] = None
         mem_data: Optional[int] = None
-        # BRANCH: PC
+        # EX stage (BRANCH)
         branch_addr: Optional[int] = None
         branch_cond: Optional[bool] = None
 
@@ -609,7 +615,7 @@ class ExStage:
                 assert self.writeback_idx is not None
                 assert self.writeback_data is not None
                 return f"[EX ](action: {self.action_bits}, rd: {self.writeback_idx}, data: {self.writeback_data})"
-            if self.action_bits & AfterExAction.LOAD_WRITEBACK:
+            if self.action_bits & AfterExAction.LOAD:
                 assert self.writeback_idx is not None
                 return f"[EX ](action: {self.action_bits}, rd: {self.writeback_idx})"
             else:
@@ -860,7 +866,7 @@ class ExStage:
         # MEM stageでの読み出しを指定
         return ExStage.Result(
             decode_data=decode_data.fetch_data,
-            action_bits=AfterExAction.LOAD_WRITEBACK,
+            action_bits=AfterExAction.LOAD | AfterExAction.WRITEBACK,
             mem_addr=load_op.mem_addr(),
             mem_size=load_op.mem_addr(),
             writeback_idx=decode_data.operand.i.rd,
@@ -989,6 +995,38 @@ class ExStage:
             writeback_data=decode_data.fetch_data.pc + imm,
         ), None
 
+    def _run_j_jal(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # JAL: rd = pc + 4, pc = pc + imm
+        imm = decode_data.operand.j.imm << 1
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.BRANCH | AfterExAction.WRITEBACK,
+            writeback_idx=decode_data.operand.j.rd,
+            writeback_data=decode_data.fetch_data.pc + 4,
+            branch_addr=decode_data.fetch_data.pc + imm,
+            branch_cond=True,
+        ), None
+
+    def _run_i_jalr(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # JALR: rd = pc + 4, pc = rs1 + imm
+        src_regs, regs_ex = reg_file.read_srcregs(
+            rs1_idx=decode_data.operand.i.rs1, rs2_idx=0
+        )
+        if regs_ex is not None:
+            return None, regs_ex
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.BRANCH | AfterExAction.WRITEBACK,
+            writeback_idx=decode_data.operand.i.rd,
+            writeback_data=decode_data.fetch_data.pc + 4,
+            branch_addr=src_regs.rs1 + decode_data.operand.i.imm_sext,
+            branch_cond=True,
+        ), None
+
     @classmethod
     def run(
         cls,
@@ -999,14 +1037,14 @@ class ExStage:
             InstGroup, Callable[[IdStage.Result, RegFile], ExceptionCode | None]
         ] = {
             InstGroup.NOP: cls._run_r_arithmetic,  # ADDI 0,0,0
-            InstGroup.R_ARITHMETIC: cls._run_r_arithmetic,
-            InstGroup.I_ARITHMETIC: cls._run_i_arithmetic,
+            InstGroup.R_ARITHMETIC_LOGICAL_MULTIPLY: cls._run_r_arithmetic,
+            InstGroup.I_ARITHMETIC_LOGICAL: cls._run_i_arithmetic,
             InstGroup.S_STORE: cls._run_s_store,
             InstGroup.B_BRANCH: cls._run_b_branch,
             InstGroup.U_LUI: cls._run_u_lui,
             InstGroup.U_AUIPC: cls._run_u_auipc,
-            # InstFmt.J_JAL: cls._run_jtype,
-            # InstFmt.J_JALR: cls._run_jtype,
+            InstGroup.J_JAL: cls._run_j_jal,
+            InstGroup.J_JALR: cls._run_i_jalr,
             # InstFmt.I_ENV: cls._run_itype,
             # InstFmt.R_ATOMIC: cls._run_atomic,
         }
