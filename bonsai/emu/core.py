@@ -1018,7 +1018,7 @@ class ExStage:
             decode_data=decode_data.fetch_data,
             action_bits=AfterExAction.BRANCH | AfterExAction.WRITEBACK,
             writeback_idx=decode_data.operand.j.rd,
-            writeback_data=decode_data.fetch_data.pc + 4,
+            writeback_data=decode_data.fetch_data.pc + SysAddr.NUM_WORD_BYTES,
             branch_addr=decode_data.fetch_data.pc + imm,
             branch_cond=True,
         ), None
@@ -1037,10 +1037,20 @@ class ExStage:
             decode_data=decode_data.fetch_data,
             action_bits=AfterExAction.BRANCH | AfterExAction.WRITEBACK,
             writeback_idx=decode_data.operand.i.rd,
-            writeback_data=decode_data.fetch_data.pc + 4,
+            writeback_data=decode_data.fetch_data.pc + SysAddr.NUM_WORD_BYTES,
             branch_addr=src_regs.rs1 + decode_data.operand.i.imm_sext,
             branch_cond=True,
         ), None
+
+    @classmethod
+    def _run_r_atomic(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # TODO: implement
+        # - Aquire memory,  Release memory fieldの命令保証するためには Pipelineの状態確認が必要
+        # - LR/SCのためにメモリ予約とその確認が必要
+        # - Swap/Atomic XXX のために、MEM stageで読み出した値をWB stageまでに変更する必要がある
+        return None, ExceptionCode.ILLEGAL_INST
 
     @classmethod
     def run(
@@ -1060,8 +1070,8 @@ class ExStage:
             InstGroup.U_AUIPC: cls._run_u_auipc,
             InstGroup.J_JAL: cls._run_j_jal,
             InstGroup.J_JALR: cls._run_i_jalr,
+            InstGroup.R_ATOMIC: cls._run_r_atomic,
             # InstFmt.I_ENV: cls._run_itype,
-            # InstFmt.R_ATOMIC: cls._run_atomic,
         }
         execution_function = table.get(decode_data.inst_fmt, None)
         # 未定義命令
