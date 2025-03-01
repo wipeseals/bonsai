@@ -905,7 +905,7 @@ class ExStage:
             action_bits=AfterExAction.STORE,
             mem_addr=store_op.mem_addr(),
             mem_size=store_op.mem_size(),
-            store_data=store_op.store_data(),
+            mem_data=store_op.store_data(),
         ), None
 
     @classmethod
@@ -965,6 +965,18 @@ class ExStage:
             branch_cond=branch_op.branch_cond(),
         ), None
 
+    def _run_u_lui(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # LUI: rd = imm[31:12]
+        imm = decode_data.operand.u.imm << 12
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.WRITEBACK,
+            writeback_idx=decode_data.operand.u.rd,
+            writeback_data=imm,
+        ), None
+
     @classmethod
     def run(
         cls,
@@ -979,7 +991,7 @@ class ExStage:
             InstGroup.I_ARITHMETIC: cls._run_i_arithmetic,
             InstGroup.S_STORE: cls._run_s_store,
             InstGroup.B_BRANCH: cls._run_b_branch,
-            # InstFmt.U_LUI: cls._run_utype,
+            InstGroup.U_LUI: cls._run_u_lui,
             # InstFmt.U_AUIPC: cls._run_utype,
             # InstFmt.J_JAL: cls._run_jtype,
             # InstFmt.J_JALR: cls._run_jtype,
@@ -996,10 +1008,6 @@ class ExStage:
 
 
 class MemStage:
-    """
-    メモリアクセス
-    """
-
     @dataclass
     class Result:
         # ex result
