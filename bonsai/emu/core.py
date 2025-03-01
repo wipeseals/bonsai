@@ -593,12 +593,16 @@ class ExStage:
         decode_data: IdStage.Result
         # next actions
         action_bits: AfterExAction
-        # rd regに書き戻すデータあれば設定
+        # LOAD_WRITEBACK | WRITEBACK | LOAD: WB stage
         writeback_idx: Optional[int] = None
         writeback_data: Optional[int] = None
-        # MEM Read/Write時のアドレス/Size
+        # LOAD | STORE: MEM stage
         mem_addr: Optional[int] = None
         mem_size: Optional[int] = None
+        mem_data: Optional[int] = None
+        # BRANCH: PC
+        branch_addr: Optional[int] = None
+        branch_cond: Optional[bool] = None
 
         def __repr__(self) -> str:
             if self.action_bits & AfterExAction.WRITEBACK:
@@ -634,6 +638,13 @@ class ExStage:
         mem_size: Callable[[], SysAddr.DataU32]
         # Store Data
         store_data: Callable[[], SysAddr.DataU32]
+
+    @dataclass
+    class BranchOp:
+        # Branch先
+        branch_addr: Callable[[], SysAddr.DataU32]
+        # branch条件成立
+        branch_cond: Callable[[], bool]
 
     @classmethod
     def _run_r_arithmetic(
@@ -898,6 +909,63 @@ class ExStage:
         ), None
 
     @classmethod
+    def _run_b_branch(
+        cls, decode_data: IdStage.Result, reg_file: RegFile
+    ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
+        # read rs1, rs2
+        src_regs, regs_ex = reg_file.read_srcregs(
+            rs1_idx=decode_data.operand.b.rs1, rs2_idx=decode_data.operand.b.rs2
+        )
+        if regs_ex is not None:
+            return None, regs_ex
+        # Branch条件成立
+        table: Dict[InstType, ExStage.BranchOp] = {
+            InstType.BEQ: ExStage.BranchOp(
+                branch_addr=lambda: decode_data.fetch_data.pc
+                + decode_data.operand.b.imm_sext,
+                branch_cond=lambda: src_regs.rs1 == src_regs.rs2,
+            ),
+            InstType.BNE: ExStage.BranchOp(
+                branch_addr=lambda: decode_data.fetch_data.pc
+                + decode_data.operand.b.imm_sext,
+                branch_cond=lambda: src_regs.rs1 != src_regs.rs2,
+            ),
+            InstType.BLT: ExStage.BranchOp(
+                branch_addr=lambda: decode_data.fetch_data.pc
+                + decode_data.operand.b.imm_sext,
+                branch_cond=lambda: src_regs.rs1 < src_regs.rs2,
+            ),
+            InstType.BGE: ExStage.BranchOp(
+                branch_addr=lambda: decode_data.fetch_data.pc
+                + decode_data.operand.b.imm_sext,
+                branch_cond=lambda: src_regs.rs1 >= src_regs.rs2,
+            ),
+            InstType.BLTU: ExStage.BranchOp(
+                branch_addr=lambda: decode_data.fetch_data.pc
+                + decode_data.operand.b.imm,
+                branch_cond=lambda: src_regs.rs1 < src_regs.rs2,
+            ),
+            InstType.BGEU: ExStage.BranchOp(
+                branch_addr=lambda: decode_data.fetch_data.pc
+                + decode_data.operand.b.imm,
+                branch_cond=lambda: src_regs.rs1 >= src_regs.rs2,
+            ),
+        }
+        branch_op = table.get(decode_data.inst_type, None)
+        if branch_op is None:
+            # Decodeできていればここには来ないはず
+            logging.warning(f"Unknown instruction type: {decode_data.b.funct3=}")
+            return None, ExceptionCode.ILLEGAL_INST
+
+        # Branch条件成立有無と次のPCを返す
+        return ExStage.Result(
+            decode_data=decode_data.fetch_data,
+            action_bits=AfterExAction.BRANCH,
+            branch_addr=branch_op.branch_addr(),
+            branch_cond=branch_op.branch_cond(),
+        ), None
+
+    @classmethod
     def run(
         cls,
         decode_data: IdStage.Result,
@@ -910,7 +978,7 @@ class ExStage:
             InstGroup.R_ARITHMETIC: cls._run_r_arithmetic,
             InstGroup.I_ARITHMETIC: cls._run_i_arithmetic,
             InstGroup.S_STORE: cls._run_s_store,
-            # InstFmt.B: cls._run_btype,
+            InstGroup.B_BRANCH: cls._run_b_branch,
             # InstFmt.U_LUI: cls._run_utype,
             # InstFmt.U_AUIPC: cls._run_utype,
             # InstFmt.J_JAL: cls._run_jtype,
