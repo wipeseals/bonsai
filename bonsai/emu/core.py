@@ -4,7 +4,7 @@ from ctypes import LittleEndianStructure, Union, c_uint32
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
-from emu.mem import BusError, BusSlave, SysAddr
+from emu.mem import AccessType, BusError, BusSlave, SysAddr
 
 from bonsai.emu.calc import Calc
 
@@ -1087,9 +1087,22 @@ class MemStage:
     class Result:
         # ex result
         exec_data: ExStage.Result
+        # action bits (from EX stage)
+        action_bits: AfterExAction
+        # load result
+        load_data: Optional[SysAddr.DataU32] = None
 
         def __repr__(self) -> str:
-            return "[MEM](TODO)"
+            repr_str = f"[MEM](action: {self.action_bits}"
+            if self.action_bits & AfterExAction.LOAD:
+                assert self.load_data is not None
+                repr_str += f", load_data: *{self.exec_data.mem_addr:#08x} = {self.load_data:#08x}"
+            if self.action_bits & AfterExAction.STORE:
+                assert self.exec_data.mem_addr is not None
+                assert self.exec_data.mem_size is not None
+                repr_str += f", store_data: *{self.exec_data.mem_addr:#08x} := {self.exec_data.mem_data:#08x}"
+            repr_str += ")"
+            return repr_str
 
     @classmethod
     def run(
@@ -1097,8 +1110,51 @@ class MemStage:
         exec_data: ExStage.Result,
         slave: BusSlave,
     ) -> Tuple[Optional["MemStage.Result"], ExceptionCode | None]:
-        # TODO: implement
-        return MemStage.Result(exec_data=exec_data), None
+        if exec_data.action_bits & AfterExAction.LOAD:
+            # Load命令
+            assert exec_data.mem_addr is not None
+            assert exec_data.mem_size is not None
+            data, ex = slave.read(
+                exec_data=exec_data,
+                addr=exec_data.mem_addr,
+                access_type=AccessType.NORMAL,
+                num_en_bytes=exec_data.mem_size,
+            )
+            if ex is not None:
+                logging.warning(
+                    f"Failed to read memory: addr={exec_data.mem_addr:#08x}, size={exec_data.mem_size}, ex={ex}"
+                )
+                return None, ex
+            return MemStage.Result(
+                exec_data=exec_data,
+                action_bits=exec_data.action_bits,
+                load_data=data,
+            ), None
+        elif exec_data.action_bits & AfterExAction.STORE:
+            # Store命令
+            assert exec_data.mem_addr is not None
+            assert exec_data.mem_size is not None
+            assert exec_data.mem_data is not None
+            ex = slave.write(
+                addr=exec_data.mem_addr,
+                access_type=AccessType.NORMAL,
+                num_en_bytes=exec_data.mem_size,
+                data=exec_data.mem_data,
+            )
+            if ex is not None:
+                logging.warning(
+                    f"Failed to write memory: addr={exec_data.mem_addr:#08x}, size={exec_data.mem_size}, data={exec_data.mem_data:#08x}, ex={ex}"
+                )
+                return None, ex
+            return MemStage.Result(
+                exec_data=exec_data,
+                action_bits=exec_data.action_bits,
+            ), None
+        else:
+            # NOP
+            return MemStage.Result(
+                exec_data=exec_data, action_bits=exec_data.action_bits
+            ), None
 
 
 class WbStage:
