@@ -1016,7 +1016,7 @@ class ExStage:
         cls, decode_data: IdStage.Result, reg_file: RegFile
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
         # JAL: rd = pc + 4, pc = pc + imm
-        imm = decode_data.operand.j.imm << 1
+        imm = decode_data.operand.j.imm_sext
         return ExStage.Result(
             decode_data=decode_data.fetch_data,
             action_bits=AfterExAction.BRANCH | AfterExAction.WRITEBACK,
@@ -1267,6 +1267,10 @@ class Core:
         """
         logging.debug(
             "###################################################################################################################################"
+        )
+        logging.debug(f"[{self.cycles}]PC: {self.pc.value:#08x}")
+        logging.debug(
+            " ".join(f"R{idx:02}: {hex(reg)}" for idx, reg in enumerate(self.regs.regs))
         )
 
         # IF: Instruction Fetch
