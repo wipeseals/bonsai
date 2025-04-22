@@ -644,8 +644,7 @@ class ExStage:
     class ArithmeticLogicalOp:
         # 計算結果を返す
         compute_result: Callable[[], SysAddr.DataU32]
-        # 例外がある場合はそのコードを
-        check_exception: Callable[[], ExceptionCode | None] = None
+        check_exception: Callable[[], ExceptionCode | None] = lambda: None
 
     @dataclass
     class LoadOp:
@@ -700,18 +699,15 @@ class ExStage:
                 compute_result=lambda: src_regs.rs1 & src_regs.rs2
             ),
             InstType.SLL: ExStage.ArithmeticLogicalOp(
-                check_exception=lambda: None,
                 compute_result=lambda: src_regs.rs1_sext << src_regs.rs2_sext,
             ),
             InstType.SRL: ExStage.ArithmeticLogicalOp(
                 compute_result=lambda: src_regs.rs1 >> src_regs.rs2
             ),
             InstType.SRA: ExStage.ArithmeticLogicalOp(
-                check_exception=lambda: None,
                 compute_result=lambda: src_regs.rs1_sext >> src_regs.rs2,
             ),
             InstType.SLT: ExStage.ArithmeticLogicalOp(
-                check_exception=lambda: None,
                 compute_result=lambda: src_regs.rs1_sext < src_regs.rs2_sext,
             ),
             InstType.SLTU: ExStage.ArithmeticLogicalOp(
@@ -734,7 +730,7 @@ class ExStage:
                 >> SysAddr.NUM_WORD_BITS,
             ),
             InstType.DIV: ExStage.ArithmeticLogicalOp(
-                check_exception=None
+                check_exception=(lambda: None)
                 if src_regs.rs2_sext != 0
                 else ExceptionCode.ILLEGAL_INST,
                 compute_result=lambda: src_regs.rs1_sext // src_regs.rs2_sext
@@ -742,7 +738,7 @@ class ExStage:
                 else 0xFFFFFFFF,
             ),
             InstType.DIVU: ExStage.ArithmeticLogicalOp(
-                check_exception=None
+                check_exception=(lambda: None)
                 if src_regs.rs2 != 0
                 else ExceptionCode.ILLEGAL_INST,
                 compute_result=lambda: src_regs.rs1 // src_regs.rs2
@@ -750,7 +746,7 @@ class ExStage:
                 else 0xFFFFFFFF,
             ),
             InstType.REM: ExStage.ArithmeticLogicalOp(
-                check_exception=None
+                check_exception=(lambda: None)
                 if src_regs.rs2_sext != 0
                 else ExceptionCode.ILLEGAL_INST,
                 compute_result=lambda: src_regs.rs1_sext % src_regs.rs2_sext
@@ -758,7 +754,7 @@ class ExStage:
                 else src_regs.rs1_sext,
             ),
             InstType.REMU: ExStage.ArithmeticLogicalOp(
-                check_exception=None
+                check_exception=(lambda: None)
                 if src_regs.rs2 != 0
                 else ExceptionCode.ILLEGAL_INST,
                 compute_result=lambda: src_regs.rs1 % src_regs.rs2
