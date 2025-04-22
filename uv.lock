@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 
 [[package]]
@@ -46,7 +47,6 @@ wheels = [
 
 [[package]]
 name = "bonsai"
-version = "0.0.post331+dirty"
 source = { editable = "." }
 dependencies = [
     { name = "amaranth", extra = ["builtin-yosys"] },
