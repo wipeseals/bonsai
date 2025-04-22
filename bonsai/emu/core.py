@@ -46,6 +46,13 @@ class InterruptCode(enum.Enum):
     TIMER = enum.auto()
 
 
+@dataclass
+class ProgramCounter:
+    """参照渡しするためだけにコンテナにした"""
+
+    value: SysAddr.AddrU32
+
+
 class IfStage:
     """
     命令フェッチを実行する
@@ -63,15 +70,15 @@ class IfStage:
 
     @staticmethod
     def run(
-        pc: SysAddr.AddrU32, slave: BusSlave
+        pc: ProgramCounter, slave: BusSlave
     ) -> Tuple[Optional["IfStage.Result"], ExceptionCode | None]:
         exception: ExceptionCode | None = None
         # 命令データ取得
-        inst_data, access_ret = slave.read(pc)
+        inst_data, access_ret = slave.read(pc.value, AccessType.NORMAL)
         if access_ret is not None:
             logging.warning(f"Failed to read instruction: {pc=}, {access_ret=}")
             exception = ExceptionCode.from_buserr(bus_err=access_ret)
-        return IfStage.Result(pc, inst_data), exception
+        return IfStage.Result(pc.value, inst_data), exception
 
 
 @enum.unique
@@ -1087,17 +1094,15 @@ class MemStage:
     class Result:
         # ex result
         exec_data: ExStage.Result
-        # action bits (from EX stage)
-        action_bits: AfterExAction
         # load result
         load_data: Optional[SysAddr.DataU32] = None
 
         def __repr__(self) -> str:
-            repr_str = f"[MEM](action: {self.action_bits}"
-            if self.action_bits & AfterExAction.LOAD:
+            repr_str = f"[MEM](action: {self.exec_data.action_bits}"
+            if self.exec_data.action_bits & AfterExAction.LOAD:
                 assert self.load_data is not None
                 repr_str += f", load_data: *{self.exec_data.mem_addr:#08x} = {self.load_data:#08x}"
-            if self.action_bits & AfterExAction.STORE:
+            if self.exec_data.action_bits & AfterExAction.STORE:
                 assert self.exec_data.mem_addr is not None
                 assert self.exec_data.mem_size is not None
                 repr_str += f", store_data: *{self.exec_data.mem_addr:#08x} := {self.exec_data.mem_data:#08x}"
@@ -1127,7 +1132,6 @@ class MemStage:
                 return None, ex
             return MemStage.Result(
                 exec_data=exec_data,
-                action_bits=exec_data.action_bits,
                 load_data=data,
             ), None
         elif exec_data.action_bits & AfterExAction.STORE:
@@ -1148,13 +1152,10 @@ class MemStage:
                 return None, ex
             return MemStage.Result(
                 exec_data=exec_data,
-                action_bits=exec_data.action_bits,
             ), None
         else:
             # NOP
-            return MemStage.Result(
-                exec_data=exec_data, action_bits=exec_data.action_bits
-            ), None
+            return MemStage.Result(exec_data=exec_data), None
 
 
 class WbStage:
@@ -1166,16 +1167,79 @@ class WbStage:
     class Result:
         # mem result
         mem_data: MemStage.Result
+        # writeback result
+        wb_idx: Optional[int] = None
+        wb_data: Optional[SysAddr.DataU32] = None
+        # branch result
+        jumped: bool = False
+        old_pc: Optional[int] = None
+        new_pc: Optional[int] = None
 
         def __repr__(self) -> str:
-            return "[WB ](TODO)"
+            repr_str = f"[WB ](action: {self.mem_data.exec_data.action_bits}"
+            if self.mem_data.exec_data.action_bits & AfterExAction.WRITEBACK:
+                assert self.wb_idx is not None
+                assert self.wb_data is not None
+                repr_str += f", rd: {self.wb_idx}, data: 0x{self.wb_data:08x}"
+            if self.jumped:
+                repr_str += (
+                    f", old_pc: 0x{self.old_pc:#08x}, new_pc: 0x{self.new_pc:#08x}"
+                )
+            repr_str += ")"
+            return repr_str
 
     @classmethod
     def run(
-        cls, mem_data: MemStage.Result
+        cls,
+        mem_data: MemStage.Result,
+        pc: ProgramCounter,
+        reg_file: RegFile,
     ) -> Tuple[Optional["WbStage.Result"], ExceptionCode | None]:
-        # TODO: implement
-        return WbStage.Result(mem_data=mem_data), None
+        ret = WbStage.Result(
+            mem_data=mem_data,
+        )
+        if mem_data.exec_data.action_bits & AfterExAction.WRITEBACK:
+            logging.debug(
+                f"WriteBack: {mem_data.exec_data.writeback_idx=}, {mem_data.exec_data.writeback_data=}, {mem_data.load_data=}"
+            )
+            # WriteBack命令
+            assert mem_data.exec_data.writeback_idx is not None
+            # data from MEM stage or from EX stage
+            is_load = mem_data.exec_data.action_bits & AfterExAction.LOAD
+            wb_data = (
+                mem_data.load_data if is_load else mem_data.exec_data.writeback_data
+            )
+            ex = reg_file.write(
+                addr=mem_data.exec_data.writeback_idx,
+                data=wb_data,
+            )
+            if ex is not None:
+                logging.warning(
+                    f"Failed to write register: addr={mem_data.exec_data.writeback_idx}, data={mem_data.load_data:#08x}, ex={ex}"
+                )
+                return ret, ex
+            ret.wb_idx = mem_data.exec_data.writeback_idx
+            ret.wb_data = wb_data
+            ret.old_pc = pc.value
+        if mem_data.exec_data.action_bits & AfterExAction.BRANCH:
+            assert mem_data.exec_data.branch_addr is not None
+            assert mem_data.exec_data.branch_cond is not None
+            logging.debug(
+                f"Branch: {mem_data.exec_data.branch_addr=}, {mem_data.exec_data.branch_cond=}"
+            )
+            if mem_data.exec_data.branch_cond:
+                # update pc
+                assert mem_data.exec_data.branch_addr is not None
+                old_pc = pc.value
+                pc.value = mem_data.exec_data.branch_addr
+                # results
+                ret.old_pc = old_pc
+                ret.new_pc = pc.value
+                ret.jumped = True
+        else:
+            # NOP
+            pass
+        return ret, None
 
 
 @dataclass
@@ -1191,13 +1255,13 @@ class Core:
         self.config = config
         # RegisterFile & PC & cycles
         self.regs = RegFile()
-        self.pc: SysAddr.AddrU32 = SysAddr.AddrU32(0)
+        self.pc = ProgramCounter(SysAddr.AddrU32(config.init_pc))
         self.cycles = 0
         self.reset()
 
     def reset(self) -> None:
         self.regs.clear()
-        self.pc = SysAddr.AddrU32(self.config.init_pc)
+        self.pc = ProgramCounter(SysAddr.AddrU32(self.config.init_pc))
         self.cycles = 0
 
     def step(self) -> None:
@@ -1234,7 +1298,9 @@ class Core:
         assert ex_data is not None
 
         # MEM: Memory Access
-        mem_data, mem_ex = MemStage.run(exec_data=ex_data, slave=self.slave)
+        mem_data, mem_ex = MemStage.run(
+            exec_data=ex_data, slave=self.slave
+        )  # TODO: 並行する場合、WB->EX forwarding必要
         logging.debug(f"[{self.cycles}]{mem_data}")
         if mem_ex is not None:
             logging.warning(f"Memory Access Error: {mem_ex=}")
@@ -1242,15 +1308,17 @@ class Core:
         assert mem_data is not None
 
         # WB: WriteBack
-        wb_data, wb_ex = WbStage.run(mem_data=mem_data)
+        wb_data, wb_ex = WbStage.run(mem_data=mem_data, pc=self.pc, reg_file=self.regs)
         logging.debug(f"[{self.cycles}]{wb_data}")
         if wb_ex is not None:
             logging.warning(f"WriteBack Error: {wb_ex=}")
             raise RuntimeError(f"TODO: impl Exception Handler: {wb_ex=}")
         assert wb_data is not None
 
-        # Next PC/cycles
-        self.pc += SysAddr.NUM_WORD_BYTES  # TODO: branch
+        # Next PC (not branch)
+        if not wb_data.jumped:
+            self.pc.value += SysAddr.NUM_WORD_BYTES  # TODO: branch
+        # increment cycle
         self.cycles += 1
 
         # TODO: Exception, Interrupt, Debug, etc...
