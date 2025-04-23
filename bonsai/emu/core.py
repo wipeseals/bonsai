@@ -53,6 +53,126 @@ class ProgramCounter:
     value: SysAddr.AddrU32
 
 
+@dataclass
+class ReadRegResult:
+    rs1: int
+    rs2: int
+    rs1_sext: int
+    rs2_sext: int
+
+
+X_LEN: int = 32
+
+
+@dataclass
+class RegFile:
+    """
+    Register file
+    """
+
+    # 汎用レジスタ32本
+    regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * X_LEN)
+
+    def __repr__(self):
+        return "\n".join(f"R{idx:02}: {hex(reg)}" for idx, reg in enumerate(self.regs))
+
+    def clear(self) -> None:
+        """
+        Clear all registers
+        """
+        self.regs = [0] * X_LEN
+
+    def read(
+        self, addr: SysAddr.AddrU32
+    ) -> Tuple[SysAddr.DataU32, ExceptionCode | None]:
+        """
+        Read a register
+        """
+        assert 0 <= addr < X_LEN, f"Invalid register address: {addr=}"
+        # zero register
+        if addr == 0:
+            return 0, None
+        return self.regs[addr], None
+
+    def write(
+        self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
+    ) -> ExceptionCode | None:
+        """
+        Write a register
+        """
+        assert 0 <= addr < X_LEN, f"Invalid register address: {addr=}"
+        # zero register
+        if addr == 0:
+            return None
+        self.regs[addr] = data
+        return None
+
+    def read_srcregs(
+        self, rs1_idx: int, rs2_idx: int
+    ) -> Tuple[ReadRegResult | None, ExceptionCode | None]:
+        # read rs1, rs2
+        rs1, rs1_ex = self.read(rs1_idx)
+        if rs1_ex is not None:
+            logging.warning(f"Failed to read rs1: {rs1_ex=}")
+            return None, rs1_ex
+        rs2, rs2_ex = self.read(rs2_idx)
+        if rs2_ex is not None:
+            logging.warning(f"Failed to read rs2: {rs2_ex=}")
+            return None, rs2_ex
+        # sign extend rs1/rs2
+        rs1 = Calc.sign_extend(data=rs1, num_bit_width=32)
+        rs2 = Calc.sign_extend(data=rs2, num_bit_width=32)
+
+        return ReadRegResult(
+            rs1=rs1,
+            rs2=rs2,
+            rs1_sext=rs1,
+            rs2_sext=rs2,
+        ), None
+
+
+CSR_LEN: int = 4096
+
+
+@dataclass
+class ControlStatusReg:
+    """
+    Control and Status Register
+    """
+
+    # CSRレジスタの値
+    # TODO: Read Only CSRを実装する
+    regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * CSR_LEN)
+
+    def __repr__(self):
+        return "\n".join(
+            f"CSR{idx:04}: {hex(reg)}" for idx, reg in enumerate(self.regs)
+        )
+
+    def clear(self) -> None:
+        """
+        Clear all CSR registers
+        """
+        self.regs = [0] * CSR_LEN
+
+    def read(self, addr: SysAddr.AddrU32) -> SysAddr.DataU32:
+        """
+        Read a CSR register
+        """
+        assert 0 <= addr < CSR_LEN, f"Invalid CSR address: {addr=}"
+        return self.regs[addr]
+
+    def write(
+        self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
+    ) -> ExceptionCode | None:
+        """
+        Write a CSR register
+        """
+        assert 0 <= addr < CSR_LEN, f"Invalid CSR address: {addr=}"
+        self.regs[addr] = data
+        return None
+
+
 class IfStage:
     """
     命令フェッチを実行する
@@ -82,41 +202,43 @@ class IfStage:
 
 
 @enum.unique
-class InstGroup(enum.Enum):
+class Opcode(enum.Enum):
     """
     Instruction Group
     format別機能別に分割
     """
 
     # 0 => ADDI 0 0 にしておく
-    NOP = 0
+    NOP_IMM = 0
 
     # Register:
     # - Arithmetic/Logical (ADD, SUB, XOR, OR, AND, SLL, SRL, SRA, SLT, SLTU)
     # - Multiply (MUL, MULH, MULHSU, MULU, DIV, DIVU, REM, REMU)
-    R_ARITHMETIC_LOGICAL_MULTIPLY = 0b0110011
+    OP = 0b0110011
     # Immediate:
     # - Arithmetic/Logical (ADDI, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
-    I_ARITHMETIC_LOGICAL = 0b0010011
+    OP_IMM = 0b0010011
     # Immediate:
     # - Load (LB, LH, LW, LBU, LHU)
-    I_LOAD = 0b0000011
+    LOAD = 0b0000011
     # Store(SB, SH, SW)
-    S_STORE = 0b0100011
+    STORE = 0b0100011
     # Branch(BEQ, BNE, BLT, BGE, BLTU, BGEU)
-    B_BRANCH = 0b1100011
+    BRANCH = 0b1100011
     # Load Upper Immediate
-    U_LUI = 0b0110111
+    LUI = 0b0110111
     # Add Upper Immediate to PC
-    U_AUIPC = 0b0010111
+    AUIPC = 0b0010111
     # Jump And Link
-    J_JAL = 0b1101111
+    JAL = 0b1101111
     # Jump And Link Register
-    J_JALR = 0b1100111
-    # Environment Call/Break
-    I_ENV = 0b1110011
+    JALR = 0b1100111
+    # Environment Call/Break, Zicsr Extension
+    SYSTEM = 0b1110011
     # Atomic Extension
-    R_ATOMIC = 0b0101111
+    ATOMIC = 0b0101111
+    # Zifencei Extension
+    MISC_MEM = 0b0001111
 
 
 @enum.unique
@@ -182,6 +304,13 @@ class InstType(enum.Enum):
     DIVU = enum.auto()
     REM = enum.auto()
     REMU = enum.auto()
+    # Zicsr Extension I-Type Instructions
+    CSRRW = enum.auto()
+    CSRRS = enum.auto()
+    CSRRC = enum.auto()
+    CSRRWI = enum.auto()
+    CSRRSI = enum.auto()
+    CSRRCI = enum.auto()
     # Atomic Extension R-Type Instructions
     LR_W = enum.auto()
     SC_W = enum.auto()
@@ -322,6 +451,17 @@ class InstJType(LittleEndianStructure):
         return Calc.sign_extend(data=self.imm, num_bit_width=21)
 
 
+class InstSystemType(LittleEndianStructure):
+    _pack_ = 1
+    _fields_ = [
+        ("opcode", c_uint32, 7),
+        ("rd", c_uint32, 5),
+        ("funct3", c_uint32, 3),
+        ("rs1", c_uint32, 5),
+        ("funct12", c_uint32, 12),
+    ]
+
+
 class InstAtomicType(LittleEndianStructure):
     _pack_ = 1
     _fields_ = [
@@ -347,6 +487,7 @@ class Operand(Union):
         ("b", InstBType),
         ("u", InstUType),
         ("j", InstJType),
+        ("zicsr", InstSystemType),
         ("atomic", InstAtomicType),
     ]
 
@@ -361,7 +502,7 @@ class IdStage:
         # IF結果
         fetch_data: IfStage.Result
         # 命令フォーマット
-        inst_fmt: InstGroup
+        inst_fmt: Opcode
         # 命令タイプ
         inst_type: InstType
         # 命令データ
@@ -369,23 +510,23 @@ class IdStage:
 
         def __repr__(self) -> str:
             if self.inst_fmt in [
-                InstGroup.NOP,
-                InstGroup.R_ARITHMETIC_LOGICAL_MULTIPLY,
+                Opcode.NOP_IMM,
+                Opcode.OP,
             ]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.r.rd}, rs1: {self.operand.r.rs1}, rs2: {self.operand.r.rs2})"
-            elif self.inst_fmt == InstGroup.I_ARITHMETIC_LOGICAL:
+            elif self.inst_fmt == Opcode.OP_IMM:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.i.rd}, rs1: {self.operand.i.rs1}, imm: {self.operand.i.imm:08x})"
-            elif self.inst_fmt == InstGroup.S_STORE:
+            elif self.inst_fmt == Opcode.STORE:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.s.rs1}, rs2: {self.operand.s.rs2}, imm: {self.operand.s.imm:08x})"
-            elif self.inst_fmt == InstGroup.B_BRANCH:
+            elif self.inst_fmt == Opcode.BRANCH:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rs1: {self.operand.b.rs1}, rs2: {self.operand.b.rs2}, imm: {self.operand.b.imm:08x})"
-            elif self.inst_fmt in [InstGroup.U_LUI, InstGroup.U_AUIPC]:
+            elif self.inst_fmt in [Opcode.LUI, Opcode.AUIPC]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.u.rd}, imm: {self.operand.u.imm:08x})"
-            elif self.inst_fmt in [InstGroup.J_JAL, InstGroup.J_JALR]:
+            elif self.inst_fmt in [Opcode.JAL, Opcode.JALR]:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.j.rd}, imm: {self.operand.j.imm:08x})"
-            elif self.inst_fmt == InstGroup.I_ENV:
-                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, imm: {self.operand.i.imm:08x})"
-            elif self.inst_fmt == InstGroup.R_ATOMIC:
+            elif self.inst_fmt == Opcode.SYSTEM:
+                return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.zicsr.rd}, rs1: {self.operand.zicsr.rs1}, funct12: {self.operand.zicsr.funct12:08x})"
+            elif self.inst_fmt == Opcode.ATOMIC:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type}, rd: {self.operand.atomic.rd}, rs1: {self.operand.atomic.rs1}, rs2: {self.operand.atomic.rs2})"
             else:
                 return f"[ID ](fmt: {self.inst_fmt}, type: {self.inst_type})"
@@ -399,10 +540,10 @@ class IdStage:
         decode_data.raw = fetch_data.raw
         # 命令フォーマット/タイプ
         inst_type: InstType | None = None
-        inst_fmt = InstGroup(decode_data.common.opcode)
+        inst_fmt = Opcode(decode_data.common.opcode)
         if inst_fmt in [
-            InstGroup.NOP,
-            InstGroup.R_ARITHMETIC_LOGICAL_MULTIPLY,
+            Opcode.NOP_IMM,
+            Opcode.OP,
         ]:  # NOP=ADDI 0,0,0
             # funct3 -> (funct7 -> type)
             table: Dict[int, Dict[int, InstType]] = {
@@ -418,7 +559,7 @@ class IdStage:
             inst_type = table.get(decode_data.r.funct3, {}).get(
                 decode_data.r.funct7, None
             )
-        elif inst_fmt == InstGroup.I_ARITHMETIC_LOGICAL:
+        elif inst_fmt == Opcode.OP_IMM:
             # funct3 -> (imm[11:5] -> type)
             imm_11_5 = decode_data.i.imm_11_0 >> 5
             table: Dict[int, Callable[InstType]] = {
@@ -432,7 +573,7 @@ class IdStage:
                 0b111: lambda: InstType.ANDI,
             }
             inst_type = table.get(decode_data.i.funct3, lambda x: None)()
-        elif inst_fmt == InstGroup.S_STORE:
+        elif inst_fmt == Opcode.STORE:
             # funct3 -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.SB,
@@ -440,7 +581,7 @@ class IdStage:
                 0b010: InstType.SW,
             }
             inst_type = table.get(decode_data.s.funct3, None)
-        elif inst_fmt == InstGroup.B_BRANCH:
+        elif inst_fmt == Opcode.BRANCH:
             # funct3 -> type
             table: Dict[int, InstType] = {
                 0b000: InstType.BEQ,
@@ -451,28 +592,37 @@ class IdStage:
                 0b111: InstType.BGEU,
             }
             inst_type = table.get(decode_data.b.funct3, None)
-        elif inst_fmt in [InstGroup.U_LUI, InstGroup.U_AUIPC]:
+        elif inst_fmt in [Opcode.LUI, Opcode.AUIPC]:
             # opcode -> type
             table: Dict[int, InstType] = {
-                InstGroup.U_LUI: InstType.LUI,
-                InstGroup.U_AUIPC: InstType.AUIPC,
+                Opcode.LUI: InstType.LUI,
+                Opcode.AUIPC: InstType.AUIPC,
             }
             inst_type = table.get(inst_fmt, None)
-        elif inst_fmt in [InstGroup.J_JAL, InstGroup.J_JALR]:
+        elif inst_fmt in [Opcode.JAL, Opcode.JALR]:
             # opcode -> type
             table: Dict[int, InstType] = {
-                InstGroup.J_JAL: InstType.JAL,
-                InstGroup.J_JALR: InstType.JALR,
+                Opcode.JAL: InstType.JAL,
+                Opcode.JALR: InstType.JALR,
             }
             inst_type = table.get(inst_fmt, None)
-        elif inst_fmt == InstGroup.I_ENV:
-            # imm -> type
-            table: Dict[int, InstType] = {
-                0b000: InstType.ECALL,
-                0b001: InstType.EBREAK,
+        elif inst_fmt == Opcode.SYSTEM:
+            # ecall/break/Ziscr{rs1, uimm} に分岐
+            # func3 -> imm -> type
+            table: Dict[int, Callable[[int], InstType]] = {
+                0b000: lambda imm: InstType.ECALL if imm == 0 else InstType.EBREAK,
+                0b001: lambda _: InstType.CSRRW,
+                0b010: lambda _: InstType.CSRRS,
+                0b011: lambda _: InstType.CSRRC,
+                0b101: lambda _: InstType.CSRRWI,
+                0b110: lambda _: InstType.CSRRSI,
+                0b111: lambda _: InstType.CSRRCI,
             }
-            inst_type = table.get(decode_data.i.imm)
-        elif inst_fmt == InstGroup.R_ATOMIC:
+            inst_type = table.get(decode_data.zicsr.funct3, lambda x: None)(
+                decode_data.zicsr.funct12
+            )
+
+        elif inst_fmt == Opcode.ATOMIC:
             # funct5 -> type
             table: Dict[int, InstType] = {
                 0b00000: InstType.LR_W,
@@ -499,78 +649,6 @@ class IdStage:
             inst_fmt=inst_fmt,
             inst_type=inst_type,
             operand=decode_data,
-        ), None
-
-
-@dataclass
-class ReadRegResult:
-    rs1: int
-    rs2: int
-    rs1_sext: int
-    rs2_sext: int
-
-
-@dataclass
-class RegFile:
-    """
-    Register file
-    """
-
-    # 汎用レジスタ32本
-    regs: List[SysAddr.AddrU32] = field(default_factory=lambda: [0] * 32)
-
-    def clear(self) -> None:
-        """
-        Clear all registers
-        """
-        self.regs = [0] * 32
-
-    def read(
-        self, addr: SysAddr.AddrU32
-    ) -> Tuple[SysAddr.DataU32, ExceptionCode | None]:
-        """
-        Read a register
-        """
-        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
-        # zero register
-        if addr == 0:
-            return 0, None
-        return self.regs[addr], None
-
-    def write(
-        self, addr: SysAddr.AddrU32, data: SysAddr.DataU32
-    ) -> ExceptionCode | None:
-        """
-        Write a register
-        """
-        assert 0 <= addr < 32, f"Invalid register address: {addr=}"
-        # zero register
-        if addr == 0:
-            return None
-        self.regs[addr] = data
-        return None
-
-    def read_srcregs(
-        self, rs1_idx: int, rs2_idx: int
-    ) -> Tuple[ReadRegResult | None, ExceptionCode | None]:
-        # read rs1, rs2
-        rs1, rs1_ex = self.read(rs1_idx)
-        if rs1_ex is not None:
-            logging.warning(f"Failed to read rs1: {rs1_ex=}")
-            return None, rs1_ex
-        rs2, rs2_ex = self.read(rs2_idx)
-        if rs2_ex is not None:
-            logging.warning(f"Failed to read rs2: {rs2_ex=}")
-            return None, rs2_ex
-        # sign extend rs1/rs2
-        rs1 = Calc.sign_extend(data=rs1, num_bit_width=32)
-        rs2 = Calc.sign_extend(data=rs2, num_bit_width=32)
-
-        return ReadRegResult(
-            rs1=rs1,
-            rs2=rs2,
-            rs1_sext=rs1,
-            rs2_sext=rs2,
         ), None
 
 
@@ -1062,18 +1140,18 @@ class ExStage:
         reg_file: RegFile,
     ) -> Tuple[Optional["ExStage.Result"], ExceptionCode | None]:
         table: Dict[
-            InstGroup, Callable[[IdStage.Result, RegFile], ExceptionCode | None]
+            Opcode, Callable[[IdStage.Result, RegFile], ExceptionCode | None]
         ] = {
-            InstGroup.NOP: cls._run_r_arithmetic,  # ADDI 0,0,0
-            InstGroup.R_ARITHMETIC_LOGICAL_MULTIPLY: cls._run_r_arithmetic,
-            InstGroup.I_ARITHMETIC_LOGICAL: cls._run_i_arithmetic,
-            InstGroup.S_STORE: cls._run_s_store,
-            InstGroup.B_BRANCH: cls._run_b_branch,
-            InstGroup.U_LUI: cls._run_u_lui,
-            InstGroup.U_AUIPC: cls._run_u_auipc,
-            InstGroup.J_JAL: cls._run_j_jal,
-            InstGroup.J_JALR: cls._run_i_jalr,
-            InstGroup.R_ATOMIC: cls._run_r_atomic,
+            Opcode.NOP_IMM: cls._run_r_arithmetic,  # ADDI 0,0,0
+            Opcode.OP: cls._run_r_arithmetic,
+            Opcode.OP_IMM: cls._run_i_arithmetic,
+            Opcode.STORE: cls._run_s_store,
+            Opcode.BRANCH: cls._run_b_branch,
+            Opcode.LUI: cls._run_u_lui,
+            Opcode.AUIPC: cls._run_u_auipc,
+            Opcode.JAL: cls._run_j_jal,
+            Opcode.JALR: cls._run_i_jalr,
+            Opcode.ATOMIC: cls._run_r_atomic,
             # InstFmt.I_ENV: cls._run_itype,
         }
         execution_function = table.get(decode_data.inst_fmt, None)
